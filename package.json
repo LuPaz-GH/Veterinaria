@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@lottiefiles/dotlottie-react": "^0.17.14",
+    "jspdf": "^4.1.0",
+    "jspdf-autotable": "^5.0.7",
+    "xlsx": "^0.18.5"
+  }
+}
