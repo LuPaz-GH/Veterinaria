@@ -1,4 +1,3 @@
-// config/db.js
 const mysql = require('mysql2/promise');
 require('dotenv').config();
 
@@ -12,14 +11,16 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
-// Prueba de conexión (opcional, solo para debug)
+// Prueba de conexión (muy útil para debug)
 (async () => {
   try {
     const connection = await pool.getConnection();
-    console.log('Conexión a MySQL exitosa - Veterinaria Malfi');
+    console.log('¡Conexión a MySQL EXITOSA! → Base de datos: malfi_vet');
     connection.release();
   } catch (err) {
-    console.error('Error al conectar a MySQL:', err);
+    console.error('¡ERROR CRÍTICO! No se pudo conectar a MySQL:');
+    console.error(err.message);
+    console.error('Verificá: .env, usuario/root, contraseña, base de datos creada, puerto 3306 abierto.');
   }
 })();
 

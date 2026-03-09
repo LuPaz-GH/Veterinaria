@@ -1,20 +1,40 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
 const pool = require('./config/db');
+
+// Middleware de autenticación
+const authMiddleware = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, message: 'Token requerido' });
+  }
+
+  const token = authHeader.split(' ')[1];
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    return res.status(401).json({ success: false, message: 'Token inválido o expirado' });
+  }
+};
 
 // IMPORTACIÓN DE ROUTERS
 const empleadoRouter = require('./routers/empleadoRouter');
 const duenoRouter = require('./routers/duenoRouter'); 
 const productoRouter = require('./routers/productoRouter'); 
-// --- AGREGADO: Importamos el router de operaciones ---
 const operacionRouter = require('./routers/operacionRouter'); 
+const recuperacionRouter = require('./routers/recuperacionRouter');
 
 const app = express();
 const port = process.env.PORT || 3001;
 
-// --- Middlewares ---
-// CORRECCIÓN DE CORS: Ahora permite conexiones desde los puertos 5173 y 5175
+// Middlewares
 app.use(cors({ 
     origin: ['http://localhost:5173', 'http://localhost:5175'],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
@@ -23,42 +43,87 @@ app.use(cors({
 
 app.use(express.json());
 
-// --- Ruta de Login ---
+// Ruta de login (pública - maneja texto plano Y bcrypt)
 app.post('/api/login', async (req, res) => {
-    const { usuario, password } = req.body;
-    try {
-        const [rows] = await pool.query(
-            'SELECT id, nombre, usuario, rol FROM empleados WHERE usuario = ? AND password = ? AND activo = 1',
-            [usuario, password]
-        );
+  const { usuario, password } = req.body;
 
-        if (rows.length > 0) {
-            res.json({ success: true, user: rows[0] });
-        } else {
-            res.status(401).json({ success: false, message: 'Usuario o contraseña incorrectos' });
-        }
-    } catch (err) {
-        console.error('Error en el proceso de login:', err);
-        res.status(500).json({ success: false, message: 'Error de servidor' });
+  console.log('[LOGIN] Intento con usuario:', usuario);
+
+  if (!usuario || !password) {
+    return res.status(400).json({ success: false, message: 'Usuario y contraseña requeridos' });
+  }
+
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, nombre, usuario, rol, password, activo FROM empleados WHERE usuario = ? AND activo = 1',
+      [usuario]
+    );
+
+    if (rows.length === 0) {
+      return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
     }
+
+    const user = rows[0];
+    let match = false;
+
+    // Si la contraseña en BD es un hash bcrypt (empieza con $2b$)
+    if (user.password.startsWith('$2b$')) {
+      console.log('[LOGIN] Detectado hash bcrypt → usando bcrypt.compare');
+      match = await bcrypt.compare(password, user.password);
+    } else {
+      // Si es texto plano (usuarios viejos)
+      console.log('[LOGIN] Contraseña en texto plano → comparación directa');
+      match = (password === user.password);
+    }
+
+    if (!match) {
+      return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
+    }
+
+    // Generar token
+    const token = jwt.sign(
+      { id: user.id, nombre: user.nombre, rol: user.rol },
+      process.env.JWT_SECRET,
+      { expiresIn: '8h' }
+    );
+
+    res.json({ 
+      success: true, 
+      token,
+      user: { id: user.id, nombre: user.nombre, rol: user.rol }
+    });
+
+  } catch (err) {
+    console.error('Error en login:', err);
+    res.status(500).json({ success: false, message: 'Error del servidor' });
+  }
 });
 
-// --- Registro de Rutas ---
+// Rutas públicas
 app.use('/api/empleados', empleadoRouter);
 app.use('/api/duenos', duenoRouter);
 app.use('/api/productos', productoRouter);
-// --- AGREGADO: Rutas de mascotas, turnos, estetica, historial y caja ---
-app.use('/api', operacionRouter); 
+app.use('/api/recuperacion', recuperacionRouter);
 
-// Ruta de prueba inicial
+// Rutas protegidas
+app.use('/api', authMiddleware, operacionRouter);
+
+// Ruta de prueba
 app.get('/', (req, res) => {
-    res.json({ message: 'Backend Malfi OK - Puerto 3001 funcionando' });
+  res.json({ message: 'Backend Malfi OK - Puerto 3001 funcionando' });
 });
 
-// Inicio del servidor
 app.listen(port, () => {
-    console.log('==============================================');
-    console.log(`🚀 Servidor Malfi corriendo en http://localhost:${port}`);
-    console.log(`✅ Permitiendo CORS para puertos 5173 y 5175`);
-    console.log('==============================================');
+  console.log('==============================================');
+  console.log(`🚀 Servidor Malfi corriendo en http://localhost:${port}`);
+  console.log(`✅ Permitiendo CORS para puertos 5173 y 5175`);
+  console.log('Login mixto: soporta texto plano + bcrypt');
+  console.log('==============================================');
+}).on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`ERROR: El puerto ${port} ya está en uso. Intenta con otro puerto o libera el actual.`);
+  } else {
+    console.error('Error al iniciar el servidor:', err);
+  }
+  process.exit(1);
 });

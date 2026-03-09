@@ -13,6 +13,7 @@ router.delete('/mascotas/:id', operacionController.eliminarMascota);
 
 // ESTÉTICA
 router.get('/estetica', operacionController.getEstetica);
+router.post('/estetica', operacionController.crearEstetica);          // ← AGREGADO: para crear nuevos turnos de estética
 router.put('/estetica/:id', operacionController.actualizarEstetica);
 router.put('/estetica/:id/estado', operacionController.actualizarEstetica); // Para botones Iniciar/Finalizar
 router.delete('/estetica/:id', operacionController.eliminarEstetica);

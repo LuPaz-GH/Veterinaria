@@ -3,9 +3,11 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
     faCalendarCheck, faPlus, faPencilAlt, faTrash, faSearch, 
     faStethoscope, faClock, faCalendarDay, faFilePdf, faFileExcel, 
-    faPaw, faTimes, faInfoCircle, faUser, faNotesMedical, faTag, faWeightHanging
+    faPaw, faTimes, faInfoCircle, faUser, faNotesMedical, faTag, faWeightHanging, faClipboardList, faPrescriptionBottleMedical,
+    faCheckCircle // Nuevo icono para el éxito
 } from '@fortawesome/free-solid-svg-icons';
 import ConfirmModal from '../component/ConfirmModal';
+import api from '../services/api';  // ← IMPORTAMOS AXIOS CON TOKEN AUTOMÁTICO
 
 // Librerías de exportación
 import * as XLSX from 'xlsx';
@@ -19,11 +21,20 @@ const TurnosPage = ({ user }) => {
     const [showModal, setShowModal] = useState(false);
     const [showAtencion, setShowAtencion] = useState(false);
     const [showDetalle, setShowDetalle] = useState(false); 
+    const [showSuccess, setShowSuccess] = useState(false); // NUEVO ESTADO PARA EL MODAL DE ÉXITO
     const [turnoSeleccionado, setTurnoSeleccionado] = useState(null);
     const [datosEdicion, setDatosEdicion] = useState(null);
     const [idToDelete, setIdToDelete] = useState(null);
     const [showConfirm, setShowConfirm] = useState(false);
     const [isNuevaMascota, setIsNuevaMascota] = useState(false);
+
+    // Estado para la notificación flotante profesional
+    const [notificacion, setNotificacion] = useState({ show: false, mensaje: '', tipo: 'success' });
+
+    const mostrarAviso = (mensaje, tipo = 'success') => {
+        setNotificacion({ show: true, mensaje, tipo });
+        setTimeout(() => setNotificacion({ show: false, mensaje: '', tipo: 'success' }), 5000);
+    };
 
     const [nuevoTurno, setNuevoTurno] = useState({
         mascota_id: '', dueno_id: '', fecha: '', tipo: 'consulta', motivo: '',
@@ -39,15 +50,21 @@ const TurnosPage = ({ user }) => {
         try {
             const ts = Date.now();
             const [resT, resM] = await Promise.all([
-                fetch(`http://localhost:3001/api/turnos?t=${ts}`),
-                fetch(`http://localhost:3001/api/mascotas?t=${ts}`)
+                api.get(`/turnos?t=${ts}`),
+                api.get(`/mascotas?t=${ts}`)
             ]);
-            const dataT = await resT.json();
-            const dataM = await resM.json();
-            setTurnos(Array.isArray(dataT) ? dataT : []);
-            setMascotas(Array.isArray(dataM) ? dataM : []);
+            setTurnos(Array.isArray(resT.data) ? resT.data : []);
+            setMascotas(Array.isArray(resM.data) ? resM.data : []);
         } catch (err) { 
-            console.error("Error al cargar datos:", err); 
+            console.error("Error al cargar datos:", err);
+            if (err.response?.status === 401) {
+                mostrarAviso("Sesión expirada. Por favor, inicia sesión nuevamente.", "error");
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/login';
+            } else {
+                mostrarAviso("No se pudieron cargar los turnos o mascotas. Revisa la conexión.", "error");
+            }
         }
     };
 
@@ -55,7 +72,10 @@ const TurnosPage = ({ user }) => {
 
     // --- REPORTES ---
     const exportarExcel = () => {
-        if (turnosFiltrados.length === 0) return alert("No hay turnos para exportar");
+        if (turnosFiltrados.length === 0) {
+            mostrarAviso("No hay turnos para exportar", "error");
+            return;
+        }
         const ws = XLSX.utils.json_to_sheet(turnosFiltrados.map(t => ({
             Fecha: new Date(t.fecha).toLocaleString('es-AR'),
             Mascota: t.mascota_nombre, Dueño: t.dueno_nombre,
@@ -67,7 +87,10 @@ const TurnosPage = ({ user }) => {
     };
 
     const exportarPDF = () => {
-        if (turnosFiltrados.length === 0) return alert("No hay turnos para exportar");
+        if (turnosFiltrados.length === 0) {
+            mostrarAviso("No hay turnos para exportar", "error");
+            return;
+        }
         const doc = new jsPDF();
         doc.text("Malfi Veterinaria - Agenda de Turnos", 14, 20);
         autoTable(doc, {
@@ -105,36 +128,26 @@ const TurnosPage = ({ user }) => {
         }
 
         if (!body.fecha) {
-            alert("La fecha y hora son obligatorias");
+            mostrarAviso("La fecha y hora son obligatorias", "error");
             return;
         }
         if (isNuevaMascota && (!body.mascota_nombre || !body.dueno_nombre)) {
-            alert("Nombre de mascota y nombre del dueño son obligatorios");
+            mostrarAviso("Nombre de mascota y nombre del dueño son obligatorios", "error");
             return;
         }
 
         try {
             const url = datosEdicion 
-                ? `http://localhost:3001/api/turnos/${datosEdicion.id}` 
-                : 'http://localhost:3001/api/turnos';
+                ? `/turnos/${datosEdicion.id}` 
+                : '/turnos';
 
             const method = datosEdicion ? 'PUT' : 'POST';
 
-            const res = await fetch(url, {
+            await api({
+                url,
                 method,
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify(body)
+                data: body
             });
-
-            const responseText = await res.text();
-
-            if (!res.ok) {
-                alert(`Error ${res.status}: ${responseText || "Respuesta inválida del servidor"}`);
-                return;
-            }
 
             setShowModal(false);
             setIsNuevaMascota(false);
@@ -148,45 +161,76 @@ const TurnosPage = ({ user }) => {
             await cargarDatos();
             
         } catch (err) {
-            alert("Error de conexión o servidor no disponible:\n" + err.message);
+            console.error("Error al guardar turno:", err);
+
+            const errorMsg = (err.response?.data?.error || err.message || '').toLowerCase();
+
+            if (
+                err.response?.status === 409 ||
+                errorMsg.includes('ocupado') ||
+                errorMsg.includes('horario ya está') ||
+                errorMsg.includes('horario_ocu')
+            ) {
+                mostrarAviso(
+                    "¡Uy! 😅 Ese horario ya está ocupado...\n\n" +
+                    "Alguien reservó justo antes que vos.\n" +
+                    "Elegí otro día u otra hora, ¡seguro hay uno perfecto para tu mascota! 🐶🐱",
+                    "error"
+                );
+            } else {
+                mostrarAviso(
+                    "¡Algo salió mal! 😓\n\n" +
+                    "Hubo un problema al conectar con el servidor.\n" +
+                    "Intentá de nuevo en unos segundos.\n\n" +
+                    "Si sigue fallando, contáctanos por favor.",
+                    "error"
+                );
+            }
         }
     };
 
     const handleConfirmarEliminar = async () => {
         try {
-            const res = await fetch(`http://localhost:3001/api/turnos/${idToDelete}`, { method: 'DELETE' });
-            if (res.ok) {
-                setShowConfirm(false);
-                setIdToDelete(null);
-                await cargarDatos();
-            } else {
-                alert("No se pudo eliminar el turno");
-            }
+            await api.delete(`/turnos/${idToDelete}`);
+            setShowConfirm(false);
+            setIdToDelete(null);
+            await cargarDatos();
         } catch (err) {
-            alert("Error al eliminar turno");
+            console.error("Error al eliminar turno:", err);
+            mostrarAviso("No se pudo eliminar el turno", "error");
         }
     };
 
     const finalizarAtencion = async (e) => {
         e.preventDefault();
-        // Combinamos peso y unidad para guardar en el historial
-        const pesoFinal = `${datosAtencion.peso} ${datosAtencion.unidad}`;
-        const res = await fetch(`http://localhost:3001/api/turnos/${turnoSeleccionado.id}/atender`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
+
+        if (!turnoSeleccionado?.id || !turnoSeleccionado?.mascota_id || !user?.id) {
+            mostrarAviso("Faltan datos del turno o del veterinario. Recarga la página.", "error");
+            return;
+        }
+
+        if (!datosAtencion.peso || !datosAtencion.diagnostico?.trim() || !datosAtencion.tratamiento?.trim()) {
+            mostrarAviso("Completa todos los campos: peso, diagnóstico y tratamiento.", "error");
+            return;
+        }
+
+        const pesoFinal = `${datosAtencion.peso?.trim() || '0'} ${datosAtencion.unidad || 'kg'}`;
+
+        try {
+            await api.post(`/turnos/${turnoSeleccionado.id}/atender`, { 
                 ...datosAtencion, 
                 peso: pesoFinal,
                 veterinario_id: user.id, 
                 mascota_id: turnoSeleccionado.mascota_id 
-            })
-        });
-        if (res.ok) {
+            });
+
             setShowAtencion(false);
             setDatosAtencion({ peso: '', unidad: 'kg', diagnostico: '', tratamiento: '' });
             await cargarDatos();
-        } else {
-            alert("No se pudo finalizar la atención");
+            setShowSuccess(true); // MOSTRAMOS EL NUEVO MODAL DE ÉXITO
+        } catch (err) {
+            console.error("Error al finalizar atención:", err);
+            mostrarAviso("Error de conexión con el servidor:\n" + (err.response?.data?.message || err.message), "error");
         }
     };
 
@@ -203,10 +247,13 @@ const TurnosPage = ({ user }) => {
         setShowModal(true);
     };
 
-    const turnosFiltrados = turnos.filter(t => 
-        (t.mascota_nombre || '').toLowerCase().includes(busqueda.toLowerCase()) ||
-        (t.dueno_nombre || '').toLowerCase().includes(busqueda.toLowerCase())
-    );
+    // Evitamos crash si turnos no es array
+    const turnosFiltrados = Array.isArray(turnos) 
+        ? turnos.filter(t => 
+            (t.mascota_nombre || '').toLowerCase().includes(busqueda.toLowerCase()) ||
+            (t.dueno_nombre || '').toLowerCase().includes(busqueda.toLowerCase())
+          )
+        : [];
 
     const gruposPorFecha = turnosFiltrados.reduce((grupos, turno) => {
         const d = new Date(turno.fecha);
@@ -216,36 +263,35 @@ const TurnosPage = ({ user }) => {
         return grupos;
     }, {});
 
-    // --- LÓGICA DE ORDENAMIENTO: HOY -> FUTURO -> PASADO ---
     const hoyStr = new Date().toLocaleDateString('es-AR');
-
     const fechasOrdenadas = Object.keys(gruposPorFecha).sort((a, b) => {
         if (a === hoyStr) return -1;
         if (b === hoyStr) return 1;
-
-        const convertirFecha = (fechaStr) => {
-            const parts = fechaStr.split('/');
-            return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+        const convertirFecha = (f) => {
+            const p = f.split('/');
+            return new Date(`${p[2]}-${p[1]}-${p[0]}`);
         };
-
         const dateA = convertirFecha(a);
         const dateB = convertirFecha(b);
         const hoyDate = new Date();
         hoyDate.setHours(0, 0, 0, 0);
-
         const esFuturoA = dateA > hoyDate;
         const esFuturoB = dateB > hoyDate;
-
         if (esFuturoA && !esFuturoB) return -1;
         if (!esFuturoA && esFuturoB) return 1;
-
         return esFuturoA ? dateA - dateB : dateB - dateA;
     });
 
     return (
-        <div className="min-vh-100 p-4 p-md-5 position-relative" style={{ backgroundImage: `url('https://i.pinimg.com/736x/5e/a6/f4/5ea6f454e92f83a264bbbbf6f70d2924.jpg')`, backgroundSize: 'cover', backgroundAttachment: 'fixed', backgroundPosition: 'center' }}>
-            <div className="position-absolute top-0 start-0 w-100 h-100" style={{ background: 'rgba(30, 81, 40, 0.4)' }} />
-
+        <div 
+            className="min-vh-100 p-4 p-md-5 position-relative" 
+            style={{ 
+                backgroundImage: `url('https://i.pinimg.com/1200x/0f/72/c3/0f72c33debe887dd051042d7642024b0.jpg')`, 
+                backgroundSize: 'cover', 
+                backgroundAttachment: 'fixed', 
+                backgroundPosition: 'center' 
+            }}
+        >
             <div className="position-relative z-1">
                 <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
                     <h1 className="text-white fw-bold" style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.5)' }}>
@@ -313,6 +359,70 @@ const TurnosPage = ({ user }) => {
                     ))
                 )}
             </div>
+
+            {/* MODAL DE NOTIFICACIÓN PROFESIONAL */}
+            {notificacion.show && (
+                <div style={{
+                    position: 'fixed',
+                    inset: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    backdropFilter: 'blur(6px)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 5000
+                }}>
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '16px',
+                        padding: '2.5rem',
+                        maxWidth: '500px',
+                        width: '90%',
+                        boxShadow: '0 25px 60px rgba(0,0,0,0.4)',
+                        position: 'relative',
+                        borderTop: `8px solid ${notificacion.tipo === 'success' ? '#28a745' : '#dc3545'}`,
+                        textAlign: 'center',
+                        animation: 'popIn 0.3s ease-out'
+                    }}>
+                        <h2 style={{
+                            margin: '0 0 1.5rem 0',
+                            fontSize: '1.8rem',
+                            fontWeight: 'bold',
+                            color: notificacion.tipo === 'success' ? '#28a745' : '#dc3545'
+                        }}>
+                            {notificacion.tipo === 'success' ? '¡Éxito!' : 'Atención'}
+                        </h2>
+
+                        <p style={{
+                            whiteSpace: 'pre-line',
+                            margin: '0 0 2rem 0',
+                            fontSize: '1.15rem',
+                            lineHeight: '1.6',
+                            color: '#333'
+                        }}>
+                            {notificacion.mensaje}
+                        </p>
+
+                        <button
+                            onClick={() => setNotificacion({ show: false, mensaje: '', tipo: 'success' })}
+                            style={{
+                                padding: '0.9rem 2.8rem',
+                                background: notificacion.tipo === 'success' ? '#28a745' : '#dc3545',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '50px',
+                                fontSize: '1.1rem',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                boxShadow: '0 6px 20px rgba(0,0,0,0.2)',
+                                transition: 'all 0.25s'
+                            }}
+                        >
+                            Entendido
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* MODAL DETALLE */}
             {showDetalle && turnoSeleccionado && (
@@ -403,7 +513,7 @@ const TurnosPage = ({ user }) => {
                                     <h6 className="fw-bold text-primary mb-3"><FontAwesomeIcon icon={faPaw} /> Datos del nuevo paciente</h6>
                                     <div className="row g-2 mb-2">
                                         <div className="col-6"><input type="text" className="form-control shadow-sm" placeholder="Nombre Mascota *" value={nuevoTurno.nueva_mascota_nombre || ''} onChange={e => setNuevoTurno({...nuevoTurno, nueva_mascota_nombre: e.target.value})} required /></div>
-                                        <div className="col-6"><select className="form-select shadow-sm" value={nuevoTurno.nueva_mascota_especie} onChange={e => setNuevoTurno({...nuevoTurno, nueva_mascota_especie: e.target.value})}><option value="Perro">Perro</option><option value="Gato">Gato</option><option value="Otro">Otro</option></select></div>
+                                        <div className="col-6"><select className="form-select shadow-sm" value={nuevoTurno.nueva_mascota_especie} onChange={e => setNuevoTurno({...nuevoTurno, nueva_mascota_especie: e.target.value})}><option value="Perro">Perro</option><option value="Gato">Gato</option></select></div>
                                     </div>
                                     <input type="text" className="form-control mb-2 shadow-sm" placeholder="Raza" value={nuevoTurno.nueva_mascota_raza || ''} onChange={e => setNuevoTurno({...nuevoTurno, nueva_mascota_raza: e.target.value})} />
                                     <input type="text" className="form-control mb-2 shadow-sm" placeholder="Nombre del Dueño *" value={nuevoTurno.nuevo_dueno_nombre || ''} onChange={e => setNuevoTurno({...nuevoTurno, nuevo_dueno_nombre: e.target.value})} required />
@@ -435,51 +545,138 @@ const TurnosPage = ({ user }) => {
                 </div>
             )}
 
-            {/* MODAL ATENCIÓN */}
+            {/* MODAL ATENCIÓN MÉDICA */}
             {showAtencion && (
                 <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 2000, backdropFilter: 'blur(3px)' }}>
                     <div className="modal-dialog modal-lg modal-dialog-centered">
-                        <form className="modal-content rounded-4 border-0 shadow-lg p-4" onSubmit={finalizarAtencion}>
-                            <h4 className="fw-bold text-primary mb-4 border-bottom pb-2">Atención Médica: {turnoSeleccionado?.mascota_nombre}</h4>
-                            
-                            <div className="mb-3">
-                                <label className="form-label fw-bold small">Peso</label>
-                                <div className="input-group">
-                                    <span className="input-group-text bg-white border-end-0 rounded-start-pill"><FontAwesomeIcon icon={faWeightHanging} className="text-muted" /></span>
-                                    <input 
-                                        type="number" 
-                                        step="0.01" 
-                                        className="form-control border-start-0" 
-                                        placeholder="Valor..."
-                                        value={datosAtencion.peso} 
-                                        onChange={(e) => setDatosAtencion({...datosAtencion, peso: e.target.value})} 
-                                        required 
-                                    />
-                                    <select 
-                                        className="form-select rounded-end-pill flex-grow-0" 
-                                        style={{width: '90px'}}
-                                        value={datosAtencion.unidad}
-                                        onChange={(e) => setDatosAtencion({...datosAtencion, unidad: e.target.value})}
-                                    >
-                                        <option value="kg">kg</option>
-                                        <option value="gr">gr</option>
-                                    </select>
+                        <form className="modal-content rounded-4 border-0 shadow-lg overflow-hidden" onSubmit={finalizarAtencion}>
+                            <div className="modal-header border-0 text-white p-4" style={{ background: 'linear-gradient(135deg, #198754 0%, #157347 100%)' }}>
+                                <div>
+                                    <h4 className="modal-title fw-bold mb-1">
+                                        <FontAwesomeIcon icon={faStethoscope} className="me-2" /> 
+                                        Atención Médica en Curso
+                                    </h4>
+                                    <p className="mb-0 opacity-75 small">Paciente: <strong>{turnoSeleccionado?.mascota_nombre}</strong> (Dueño: {turnoSeleccionado?.dueno_nombre})</p>
+                                </div>
+                                <button type="button" className="btn-close btn-close-white" onClick={() => setShowAtencion(false)}></button>
+                            </div>
+
+                            <div className="modal-body p-4 bg-light bg-opacity-50">
+                                <div className="row g-4">
+                                    <div className="col-md-5">
+                                        <div className="bg-white p-3 rounded-4 shadow-sm border h-100">
+                                            <label className="form-label fw-bold text-success small mb-3">
+                                                <FontAwesomeIcon icon={faWeightHanging} className="me-2" /> 
+                                                Registro de Peso
+                                            </label>
+                                            <div className="input-group input-group-lg">
+                                                <input 
+                                                    type="number" 
+                                                    step="0.01" 
+                                                    className="form-control border-end-0 rounded-start-4" 
+                                                    placeholder="0.00"
+                                                    value={datosAtencion.peso} 
+                                                    onChange={(e) => setDatosAtencion({...datosAtencion, peso: e.target.value})} 
+                                                    required 
+                                                />
+                                                <select 
+                                                    className="form-select rounded-end-4 flex-grow-0" 
+                                                    style={{width: '90px', backgroundColor: '#f8f9fa'}}
+                                                    value={datosAtencion.unidad}
+                                                    onChange={(e) => setDatosAtencion({...datosAtencion, unidad: e.target.value})}
+                                                >
+                                                    <option value="kg">kg</option>
+                                                    <option value="gr">gr</option>
+                                                </select>
+                                            </div>
+                                            <small className="text-muted d-block mt-2">Ingrese el peso actual del paciente.</small>
+                                        </div>
+                                    </div>
+
+                                    <div className="col-md-7">
+                                        <div className="bg-white p-3 rounded-4 shadow-sm border mb-3">
+                                            <label className="form-label fw-bold text-success small mb-2">
+                                                <FontAwesomeIcon icon={faClipboardList} className="me-2" /> 
+                                                Diagnóstico Médico
+                                            </label>
+                                            <textarea 
+                                                className="form-control border-0 bg-light rounded-3" 
+                                                rows="3" 
+                                                placeholder="Describa el estado y hallazgos..."
+                                                value={datosAtencion.diagnostico} 
+                                                onChange={(e) => setDatosAtencion({...datosAtencion, diagnostico: e.target.value})} 
+                                                required 
+                                                style={{ resize: 'none' }}
+                                            />
+                                        </div>
+                                        <div className="bg-white p-3 rounded-4 shadow-sm border">
+                                            <label className="form-label fw-bold text-success small mb-2">
+                                                <FontAwesomeIcon icon={faPrescriptionBottleMedical} className="me-2" /> 
+                                                Tratamiento y Receta
+                                            </label>
+                                            <textarea 
+                                                className="form-control border-0 bg-light rounded-3" 
+                                                rows="3" 
+                                                placeholder="Medicación, dosis y recomendaciones..."
+                                                value={datosAtencion.tratamiento} 
+                                                onChange={(e) => setDatosAtencion({...datosAtencion, tratamiento: e.target.value})} 
+                                                required 
+                                                style={{ resize: 'none' }}
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="mb-3">
-                                <label className="form-label fw-bold small">Diagnóstico</label>
-                                <textarea className="form-control shadow-sm" rows="3" value={datosAtencion.diagnostico} onChange={(e) => setDatosAtencion({...datosAtencion, diagnostico: e.target.value})} required />
-                            </div>
-                            <div className="mb-4">
-                                <label className="form-label fw-bold small">Tratamiento</label>
-                                <textarea className="form-control shadow-sm" rows="3" value={datosAtencion.tratamiento} onChange={(e) => setDatosAtencion({...datosAtencion, tratamiento: e.target.value})} required />
-                            </div>
-                            <div className="d-flex gap-2">
-                                <button type="button" className="btn btn-light px-4 rounded-pill shadow-sm" onClick={() => setShowAtencion(false)}>Cancelar</button>
-                                <button type="submit" className="btn btn-primary flex-grow-1 rounded-pill fw-bold shadow">FINALIZAR Y GUARDAR</button>
+                            <div className="modal-footer border-0 p-4 bg-white d-flex gap-3">
+                                <button type="button" className="btn btn-outline-secondary px-4 rounded-pill fw-bold" onClick={() => setShowAtencion(false)}>
+                                    CANCELAR
+                                </button>
+                                <button type="submit" className="btn btn-success flex-grow-1 rounded-pill fw-bold shadow-sm py-2">
+                                    <FontAwesomeIcon icon={faCalendarCheck} className="me-2" />
+                                    FINALIZAR Y GUARDAR ATENCIÓN
+                                </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* ────────────── NUEVO MODAL DE ÉXITO ESTILO MALFI ────────────── */}
+            {showSuccess && (
+                <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 3000, backdropFilter: 'blur(5px)' }}>
+                    <div className="modal-dialog modal-dialog-centered" style={{ maxWidth: '400px' }}>
+                        <div className="modal-content border-0 rounded-5 shadow-lg text-center p-5 position-relative overflow-visible">
+                            {/* Icono de Check flotante superior */}
+                            <div 
+                                className="position-absolute start-50 translate-middle-x bg-white rounded-circle shadow"
+                                style={{ top: '-40px', padding: '10px' }}
+                            >
+                                <FontAwesomeIcon 
+                                    icon={faCheckCircle} 
+                                    size="4x" 
+                                    style={{ color: '#2ecc71', filter: 'drop-shadow(0 0 10px rgba(46, 204, 113, 0.4))' }} 
+                                />
+                            </div>
+                            
+                            <div className="mt-4">
+                                <h2 className="fw-bold mb-3" style={{ color: '#2c3e50' }}>¡Éxito!</h2>
+                                <p className="text-muted mb-4 fs-5">¡Atención finalizada y guardada con éxito!</p>
+                                
+                                <button 
+                                    className="btn w-100 rounded-pill py-3 fw-bold text-white shadow-sm border-0" 
+                                    style={{ 
+                                        backgroundColor: '#7D3C4A', 
+                                        transition: 'all 0.3s ease' 
+                                    }}
+                                    onClick={() => setShowSuccess(false)}
+                                    onMouseOver={(e) => e.target.style.filter = 'brightness(1.1)'}
+                                    onMouseOut={(e) => e.target.style.filter = 'brightness(1)'}
+                                >
+                                    Hecho
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}

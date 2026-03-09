@@ -5,6 +5,7 @@ import {
     faSave, faArrowLeft, faCalendarDay, faPlus, faFilePdf, faFileExcel 
 } from '@fortawesome/free-solid-svg-icons';
 import ConfirmModal from '../component/ConfirmModal';
+import api from '../services/api';  // ← IMPORTAMOS AXIOS CON TOKEN AUTOMÁTICO
 
 // Librerías de exportación
 import * as XLSX from 'xlsx';
@@ -30,18 +31,34 @@ const HistorialPage = ({ user }) => {
 
     const cargarMascotas = async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/mascotas');
-            const data = await res.json();
+            const res = await api.get('/mascotas');
+            const data = res.data;
             setMascotas(Array.isArray(data) ? data : []);
-        } catch (error) { console.error(error); }
+        } catch (error) { 
+            console.error("Error al cargar mascotas:", error);
+            if (error.response?.status === 401) {
+                alert("Sesión expirada. Inicia sesión nuevamente.");
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/login';
+            }
+        }
     };
 
     const cargarHistorial = async (mascotaId) => {
         try {
-            const res = await fetch(`http://localhost:3001/api/historial/${mascotaId}`);
-            const data = await res.json();
+            const res = await api.get(`/historial/${mascotaId}`);
+            const data = res.data;
             setHistorial(Array.isArray(data) ? data : []);
-        } catch (error) { console.error(error); }
+        } catch (error) { 
+            console.error("Error al cargar historial:", error);
+            if (error.response?.status === 401) {
+                alert("Sesión expirada. Inicia sesión nuevamente.");
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/login';
+            }
+        }
     };
 
     useEffect(() => { cargarMascotas(); }, []);
@@ -160,34 +177,38 @@ const HistorialPage = ({ user }) => {
         };
 
         const url = registroEditando
-            ? `http://localhost:3001/api/historial/${registroEditando.id}`
-            : 'http://localhost:3001/api/historial';
+            ? `/historial/${registroEditando.id}`
+            : '/historial';
 
         const method = registroEditando ? 'PUT' : 'POST';
 
         try {
-            const res = await fetch(url, {
+            const res = await api({
+                url,
                 method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
+                data: body
             });
 
-            if (res.ok) {
+            if (res.status === 200 || res.status === 201) {
                 setShowModal(false);
                 cargarHistorial(mascotaSeleccionada.id);
             } else {
                 alert('Error al guardar el registro');
             }
         } catch (err) {
-            console.error('Error en fetch:', err);
+            console.error('Error al guardar registro:', err);
+            alert('Error al guardar el registro. Revisa la conexión o permisos.');
         }
     };
 
     const handleEliminar = async () => {
-        const res = await fetch(`http://localhost:3001/api/historial/${idToDelete}`, { method: 'DELETE' });
-        if (res.ok) {
+        try {
+            await api.delete(`/historial/${idToDelete}`);
             setShowConfirm(false);
             cargarHistorial(mascotaSeleccionada.id);
+        } catch (err) {
+            console.error('Error al eliminar:', err);
+            alert('No se pudo eliminar el registro');
         }
     };
 

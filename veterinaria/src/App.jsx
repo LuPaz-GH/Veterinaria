@@ -16,6 +16,7 @@ import HistorialPage from './pages/HistorialPage';
 import PeluqueriaPeluqueroView from './pages/PeluqueriaPeluqueroView';
 import DueñoDashboard from './pages/DueñoDashboard';
 import GestionEmpleados from './pages/GestionEmpleados';
+import ResetPassword from './component/ResetPassword';
 
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
@@ -37,8 +38,9 @@ const AppContent = () => {
     }
   }, [user]);
 
-  const esAdminOVet = user?.rol === 'admin' || user?.rol === 'veterinario';
-  const fondoGlobal = esAdminOVet 
+  // Incluimos recepcionista en el fondo administrativo (púrpura/rosa)
+  const esPersonal = user?.rol === 'admin' || user?.rol === 'veterinario' || user?.rol === 'recepcionista';
+  const fondoGlobal = esPersonal 
     ? 'linear-gradient(135deg, #663399 0%, #ff69b4 100%)'
     : 'linear-gradient(135deg, #1e5128 0%, #4e944f 100%)';
 
@@ -58,6 +60,7 @@ const AppContent = () => {
           <Route path="/login" element={<LoginPage />} />
           
           <Route path="/home" element={<HomePage user={user} />} />
+          
           <Route path="/mascotas" element={<MascotasPage user={user} />} />
           <Route path="/turnos" element={<TurnosPage user={user} />} />
           <Route path="/duenos" element={<DueñosPage user={user} />} />
@@ -75,7 +78,7 @@ const AppContent = () => {
 
           <Route 
             path="/historial" 
-            element={esAdminOVet ? <HistorialPage user={user} /> : <Navigate to="/home" replace />} 
+            element={(user?.rol === 'admin' || user?.rol === 'veterinario') ? <HistorialPage user={user} /> : <Navigate to="/home" replace />} 
           />
 
           <Route 
@@ -88,6 +91,7 @@ const AppContent = () => {
             element={user?.rol === 'admin' ? <GestionEmpleados /> : <Navigate to="/home" replace />} 
           />
 
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
       </main>

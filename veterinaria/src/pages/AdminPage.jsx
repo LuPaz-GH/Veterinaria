@@ -1,69 +1,95 @@
 import React from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUserShield, faChartLine, faUsersCog, faExclamationCircle, faWallet, faPaw } from '@fortawesome/free-solid-svg-icons';
+import { faUserShield, faCalendarCheck, faPaw, faHeart, faChartLine } from '@fortawesome/free-solid-svg-icons';
+import { Link } from 'react-router-dom'; 
 
 const AdminPage = () => {
   return (
-    <div className="container mt-5 p-5 bg-white rounded-4 shadow">
-      <div className="mb-4">
-        <h1 className="fw-bold mb-0" style={{ color: '#343a40' }}>
-          <FontAwesomeIcon icon={faUserShield} className="me-3" /> Panel Administrativo
+    <div 
+      className="min-vh-100 d-flex align-items-center justify-content-center p-5"
+      style={{
+        backgroundImage: `url('https://i.pinimg.com/1200x/66/e6/e4/66e6e4b662ecc5582f38e8b465a251fb.jpg')`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed'
+      }}
+    >
+      <div 
+        className="text-center text-white p-5 rounded-4 shadow-lg"
+        style={{ 
+          backgroundColor: 'rgba(0, 0, 0, 0.6)', 
+          backdropFilter: 'blur(12px)',
+          maxWidth: '800px',
+          border: '1px solid rgba(255,255,255,0.2)'
+        }}
+      >
+        {/* Bienvenida */}
+        <h1 className="fw-bold mb-3" style={{ fontSize: '4rem', textShadow: '4px 4px 12px rgba(0,0,0,0.8)' }}>
+          ¡Hola Dueña Vicky! 💜
         </h1>
-        <p className="text-muted">Control total de Malfi Veterinaria</p>
-      </div>
+        <p className="lead fs-3 mb-5">
+          Bienvenida al corazón de <strong>Malfi Veterinaria</strong>
+        </p>
 
-      <div className="row g-4 mb-5">
-        <div className="col-md-4">
-          <div className="card border-0 shadow-sm p-4 bg-primary text-white text-center" style={{borderRadius: '25px'}}>
-            <FontAwesomeIcon icon={faWallet} size="2x" className="mb-2" />
-            <h2 className="fw-bold">$ 452.800</h2>
-            <p className="mb-0 small opacity-75">Ventas Totales del Mes</p>
-          </div>
-        </div>
-        <div className="col-md-4">
-          <div className="card border-0 shadow-sm p-4 bg-success text-white text-center" style={{borderRadius: '25px'}}>
-            <FontAwesomeIcon icon={faPaw} size="2x" className="mb-2" />
-            <h2 className="fw-bold">124</h2>
-            <p className="mb-0 small opacity-75">Nuevos Pacientes</p>
-          </div>
-        </div>
-        <div className="col-md-4">
-          <div className="card border-0 shadow-sm p-4 bg-danger text-white text-center" style={{borderRadius: '25px'}}>
-            <FontAwesomeIcon icon={faExclamationCircle} size="2x" className="mb-2" />
-            <h2 className="fw-bold">8</h2>
-            <p className="mb-0 small opacity-75">Alertas de Stock Crítico</p>
-          </div>
-        </div>
-      </div>
+        {/* Botones principales grandes */}
+        <div className="d-flex flex-column flex-md-row gap-4 justify-content-center mb-5">
+          <Link 
+            to="/turnos" 
+            className="btn btn-success btn-lg px-5 py-4 rounded-pill shadow-lg fw-bold d-flex align-items-center justify-content-center"
+            style={{ fontSize: '1.6rem', minWidth: '300px' }}
+          >
+            <FontAwesomeIcon icon={faCalendarCheck} className="me-3 fs-1" />
+            Ir a la Agenda
+          </Link>
 
-      <div className="card border-0 shadow-sm p-4" style={{borderRadius: '25px', backgroundColor: '#f8f9fa'}}>
-        <h5 className="fw-bold mb-3"><FontAwesomeIcon icon={faUsersCog} className="me-2"/> Gestión de Staff</h5>
-        <div className="table-responsive">
-          <table className="table table-hover align-middle">
-            <thead>
-              <tr>
-                <th>Nombre</th>
-                <th>Rol</th>
-                <th>Estado</th>
-                <th className="text-center">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Luciana Malfi</td>
-                <td><span className="badge bg-dark text-white">Admin / Dueña</span></td>
-                <td><span className="text-success">● Activo</span></td>
-                <td className="text-center"><button className="btn btn-sm btn-outline-secondary">Editar Permisos</button></td>
-              </tr>
-              <tr>
-                <td>Dr. Ricardo Gómez</td>
-                <td><span className="badge bg-info text-white">Veterinario</span></td>
-                <td><span className="text-success">● Activo</span></td>
-                <td className="text-center"><button className="btn btn-sm btn-outline-secondary">Ver Agenda</button></td>
-              </tr>
-            </tbody>
-          </table>
+          <Link 
+            to="/caja" 
+            className="btn btn-primary btn-lg px-5 py-4 rounded-pill shadow-lg fw-bold d-flex align-items-center justify-content-center"
+            style={{ fontSize: '1.6rem', minWidth: '300px' }}
+          >
+            <FontAwesomeIcon icon={faWallet} className="me-3 fs-1" />
+            Ver Caja del Día
+          </Link>
         </div>
+
+        {/* Resumen motivador  */}
+        <div className="row g-4 justify-content-center">
+          <div className="col-md-6">
+            <div className="card bg-dark bg-opacity-75 text-white border-0 shadow p-4 rounded-4">
+              <div className="d-flex align-items-center justify-content-center mb-3">
+                <FontAwesomeIcon icon={faHeart} size="2x" className="text-danger me-3" />
+                <h4 className="mb-0">Hoy en Malfi</h4>
+              </div>
+              <p className="fs-5 mb-2">
+                Un día lleno de colitas felices y ladridos de agradecimiento 🐶
+              </p>
+              <p className="small opacity-75">
+                ¡Seguí cuidando con todo el amor que nos caracteriza!
+              </p>
+            </div>
+          </div>
+
+          <div className="col-md-6">
+            <div className="card bg-dark bg-opacity-75 text-white border-0 shadow p-4 rounded-4">
+              <div className="d-flex align-items-center justify-content-center mb-3">
+                <FontAwesomeIcon icon={faPaw} size="2x" className="text-warning me-3" />
+                <h4 className="mb-0">Recordatorio</h4>
+              </div>
+              <p className="fs-5 mb-0">
+                No olvides revisar el stock de vacunas y antipulgas antes de cerrar.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Botón extra opcional */}
+        <Link 
+          to="/estadisticas" 
+          className="btn btn-outline-light btn-lg px-5 py-3 mt-5 rounded-pill shadow fw-bold"
+        >
+          <FontAwesomeIcon icon={faChartLine} className="me-2" />
+          Ver Estadísticas Completas
+        </Link>
       </div>
     </div>
   );

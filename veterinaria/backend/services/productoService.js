@@ -54,7 +54,6 @@ const productoService = {
             );
 
             // 2. Actualización de fecha (CORREGIDO con ON DUPLICATE KEY UPDATE)
-            // Esto asegura que si por alguna razón no existe el registro en la tabla hija, lo cree.
             if (categoria === 'alimentos') {
                 await connection.query(`
                     INSERT INTO alimentos (producto_id, fecha_vencimiento) 
@@ -89,7 +88,7 @@ const productoService = {
 
     // Búsqueda para la Caja
     buscarParaCaja: async (termino) => {
-        let query = `SELECT id, nombre, precio_venta, stock, stock_minimo, categoria FROM productos WHERE activo = 1`;
+        let query = `SELECT id, nombre, precio_venta, stock, categoria FROM productos WHERE activo = 1`;
         const params = [];
         if (termino && termino.trim() !== "") {
             query += ` AND nombre LIKE ?`;
@@ -97,7 +96,32 @@ const productoService = {
         }
         query += ` ORDER BY nombre ASC LIMIT 30`;
         const [rows] = await pool.query(query, params);
+        
+        // Logs para debuggear en la terminal del backend
+        console.log('[DEBUG BACKEND] buscarParaCaja ejecutado');
+        console.log('[DEBUG BACKEND] Término recibido:', termino || '(vacío)');
+        console.log('[DEBUG BACKEND] Productos encontrados:', rows.length);
+        if (rows.length > 0) {
+            console.log('[DEBUG BACKEND] Primer producto:', rows[0]);
+        }
+        
         return rows;
+    },
+
+    // NUEVA FUNCIÓN: ACTUALIZAR STOCK (RESTAR AL VENDER)
+    actualizarStock: async (id, cantidad) => {
+        // cantidad suele ser negativa (ej: -2 para restar 2 unidades)
+        const [result] = await pool.query(
+            'UPDATE productos SET stock = GREATEST(stock + ?, 0) WHERE id = ? AND activo = 1',
+            [cantidad, id]
+        );
+
+        if (result.affectedRows === 0) {
+            throw new Error(`No se pudo actualizar el stock del producto ${id}. Verifica que exista y esté activo.`);
+        }
+
+        console.log(`[DEBUG BACKEND] Stock actualizado para producto ${id}: cambio ${cantidad}`);
+        return true;
     }
 };
 

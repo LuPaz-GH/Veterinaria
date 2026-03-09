@@ -196,6 +196,12 @@ html, body, #root {
   position: relative;
 }
 
+/* Corrección técnica para contenedores responsivos de Recharts */
+.recharts-responsive-container {
+  min-width: 0;
+  min-height: 380px !important; /* Asegura que el gráfico tenga espacio para dibujarse */
+}
+
 .graph-wrapper > div {
   width: 100% !important;
   height: 100% !important;

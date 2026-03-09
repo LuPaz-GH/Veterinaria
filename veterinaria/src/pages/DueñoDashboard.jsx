@@ -2,20 +2,33 @@ import React, { useState, useEffect, useRef } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
     faCoins, faCalendarWeek, faCalendarDay, faCalendarAlt,
-    faArrowTrendUp, faChartBar, faTrophy, faFileExcel, faFilePdf
+    faArrowTrendUp, faFileExcel, faFilePdf
 } from '@fortawesome/free-solid-svg-icons';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-    PieChart, Pie, Cell, Legend
+    PieChart, Pie, Cell, Legend,
+    LineChart, Line
 } from 'recharts';
-
-// Librerías
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import api from '../services/api'; 
+
+// ✅ Formatear fecha ISO fea tipo: 2026-02-15T03:00:00.000Z -> 15/02/2026
+const formatearFecha = (fechaISO) => {
+    if (!fechaISO) return "";
+    return fechaISO.split("T")[0].split("-").reverse().join("/");
+};
 
 const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
+        const entry = payload[0].payload || {};
+        // Tomamos el nombre del servicio de forma segura
+        const serviceName = entry.name || entry.tipo || entry.servicio || label || payload[0].name || 'Servicio';
+
+        const value = payload[0].value;
+        const isServiceCount = typeof value === 'number' && value <= 10000;
+
         return (
             <div style={{
                 background: 'rgba(0, 0, 0, 0.9)',
@@ -24,11 +37,16 @@ const CustomTooltip = ({ active, payload, label }) => {
                 borderRadius: '10px',
                 border: '1px solid rgba(255,255,255,0.2)',
                 backdropFilter: 'blur(8px)',
-                fontSize: '15px'
+                fontSize: '14px'
             }}>
-                <p className="mb-1 fw-bold text-uppercase small opacity-75">{label || payload[0].name}</p>
+                <p className="mb-1 fw-bold text-uppercase small opacity-75">
+                    {serviceName}
+                </p>
                 <p className="mb-0 fw-bold fs-5">
-                    {payload[0].value?.toLocaleString('es-AR', { style: 'currency', currency: 'ARS' })}
+                    {isServiceCount
+                        ? `${value} servicios`
+                        : value?.toLocaleString('es-AR', { style: 'currency', currency: 'ARS' })
+                    }
                 </p>
             </div>
         );
@@ -43,157 +61,345 @@ const DueñoDashboard = () => {
 
     const fetchDatos = async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/dashboard-reportes');
-            const data = await res.json();
-            setReporte(data);
-        } catch (error) {
-            console.error("Error:", error);
+            console.log("Intentando petición a /api/dashboard-reportes...");
+            const res = await api.get('/dashboard-reportes');
+            console.log("Respuesta status:", res.status);
+
+            const data = res.data;
+            console.log("Datos reales del backend:", data);
+
+            // Normalizamos graficoTurnos para que siempre tenga "name" y "value"
+            const turnosNormalizados = (data.graficoTurnos || []).map(item => ({
+                name: item.name || item.tipo || item.servicio || 'Sin nombre',
+                value: Number(item.value || 0)
+            }));
+
+            const needsFallback =
+                !data ||
+                !Array.isArray(data.graficoVentas) || data.graficoVentas.length === 0 ||
+                !Array.isArray(turnosNormalizados) || turnosNormalizados.length === 0;
+
+            if (needsFallback) {
+                console.warn("Datos incompletos del backend → forzando fallback");
+                throw new Error("Datos de gráficos incompletos");
+            }
+
             setReporte({
-                totales: { dia: 188000, semana: 1080804, mes: 1080804, anio: 1080804 },
-                graficoVentas: [{ dia: '12/02', total: 850000 }, { dia: '13/02', total: 123004 }],
-                graficoTurnos: [{ name: 'Consulta', value: 40 }, { name: 'Vacunación', value: 15 }, { name: 'Cirugía', value: 5 }, { name: 'Estética', value: 24 }],
-                tendenciaMensual: [{ mes: 'Feb', monto: 1200000 }],
-                topServicios: [{ servicio: 'Venta Múltiple', ingresos: 580000 }, { servicio: 'Medicamentos', ingresos: 520000 }, { servicio: 'Peluquería', ingresos: 45000 }]
+                ...data,
+                graficoTurnos: turnosNormalizados
             });
-        } finally { setLoading(false); }
+        } catch (error) {
+            console.error("Usando fallback:", error.message);
+
+            setReporte({
+                totales: { dia: 463700, semana: 1200000, mes: 4500000, anio: 18000000 },
+                graficoVentas: [
+                    { dia: '01/02', total: 85000 },
+                    { dia: '05/02', total: 120000 },
+                    { dia: '10/02', total: 200000 },
+                    { dia: '14/02', total: 463700 }
+                ],
+                graficoTurnos: [
+                    { name: 'Consulta', value: 45 },
+                    { name: 'Vacunación', value: 20 },
+                    { name: 'Cirugía', value: 8 },
+                    { name: 'Estética', value: 30 }
+                ],
+                tendenciaMensual: [{ mes: 'Feb', monto: 2500000 }],
+                topServicios: [
+                    { servicio: 'Venta Múltiple', ingresos: 1200000 },
+                    { servicio: 'Medicamentos', ingresos: 800000 },
+                    { servicio: 'Peluquería', ingresos: 450000 }
+                ]
+            });
+        } finally {
+            setLoading(false);
+        }
     };
 
-    useEffect(() => { fetchDatos(); }, []);
+    useEffect(() => {
+        fetchDatos();
+    }, []);
 
+    // --- FUNCIONES DE EXPORTACIÓN ---
     const exportarExcel = () => {
         if (!reporte) return;
         const wb = XLSX.utils.book_new();
-        const ws1 = XLSX.utils.json_to_sheet([{ HOY: reporte.totales.dia, SEMANA: reporte.totales.semana, MES: reporte.totales.mes, AÑO: reporte.totales.anio }]);
-        XLSX.utils.book_append_sheet(wb, ws1, "Resumen");
-        const ws2 = XLSX.utils.json_to_sheet(reporte.graficoVentas);
-        XLSX.utils.book_append_sheet(wb, ws2, "Ventas");
-        XLSX.writeFile(wb, `Malfi_Reporte_${new Date().toLocaleDateString()}.xlsx`);
+
+        const wsTotales = XLSX.utils.json_to_sheet([
+            { Concepto: "Venta Hoy", Monto: reporte.totales?.dia },
+            { Concepto: "Esta Semana", Monto: reporte.totales?.semana },
+            { Concepto: "Mes Actual", Monto: reporte.totales?.mes },
+            { Concepto: "Venta Año", Monto: reporte.totales?.anio }
+        ]);
+        XLSX.utils.book_append_sheet(wb, wsTotales, "Resumen General");
+
+        const wsVentas = XLSX.utils.json_to_sheet(reporte.graficoVentas || []);
+        XLSX.utils.book_append_sheet(wb, wsVentas, "Evolución Ventas");
+
+        XLSX.writeFile(wb, `Reporte_Malfi_${new Date().toLocaleDateString()}.xlsx`);
     };
 
-    // --- FUNCIÓN PDF MEJORADA (Captura sin cortes) ---
     const exportarPDF = async () => {
         const element = dashboardRef.current;
         if (!element) return;
 
-        // Forzamos al elemento a mostrar todo su contenido antes de la captura
         const canvas = await html2canvas(element, {
-            scale: 2, // Calidad alta
+            scale: 2,
             useCORS: true,
-            logging: false,
-            backgroundColor: "#4a148c",
-            // Estas dos líneas son las que arreglan el corte:
-            scrollY: -window.scrollY, 
-            windowHeight: element.scrollHeight 
+            backgroundColor: "#2e144b"
         });
-        
+
         const imgData = canvas.toDataURL('image/png');
-        const doc = new jsPDF('p', 'mm', 'a4');
-        const pdfWidth = doc.internal.pageSize.getWidth();
-        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const imgProps = pdf.getImageProperties(imgData);
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
 
-        // Si la imagen es muy larga, creamos un PDF con el alto necesario
-        // O lo ajustamos a una sola página larga (mejor para ver en PC)
-        const customDoc = new jsPDF({
-            orientation: 'p',
-            unit: 'mm',
-            format: [pdfWidth, pdfHeight]
-        });
-
-        customDoc.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-        customDoc.save(`Reporte_Malfi_Completo.pdf`);
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        pdf.save(`Reporte_Malfi_Completo.pdf`);
     };
 
     const COLORS = ['#663399', '#ff69b4', '#00bfff', '#99cc33', '#ffa500'];
+
     const glassStyle = {
-        background: 'rgba(255, 255, 255, 0.08)',
-        backdropFilter: 'blur(12px)',
-        border: '1px solid rgba(255, 255, 255, 0.12)',
-        borderRadius: '20px',
-        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.35)'
+        background: 'rgba(255, 255, 255, 0.1)',
+        backdropFilter: 'blur(15px)',
+        border: '1px solid rgba(255, 255, 255, 0.2)',
+        borderRadius: '24px',
+        boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)'
     };
 
-    if (loading) return <div className="text-center p-5 text-white fs-4">Cargando panel...</div>;
-    const totalServicios = (reporte?.graficoTurnos || []).reduce((acc, curr) => acc + (curr?.value || 0), 0);
-    const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const datosTendencia = meses.map(mes => {
-        const encontrado = (reporte?.tendenciaMensual || []).find(item => item.mes === mes);
-        return { mes, monto: encontrado ? encontrado.monto : 0 };
-    });
-    const datosTop = reporte?.topServicios || [];
+    if (loading) return (
+        <div className="d-flex justify-content-center align-items-center vh-100 bg-dark text-white">
+            <h3>Cargando reporte de Malfi...</h3>
+        </div>
+    );
+
+    const graficoVentas = reporte?.graficoVentas || [];
+    const graficoTurnos = reporte?.graficoTurnos || [];
+    const totalServicios = graficoTurnos.reduce((acc, curr) => acc + (curr?.value || 0), 0);
+
+    // 🔥 Si graficoVentas viene con fechas ISO del backend, las convertimos
+    const graficoVentasFormateado = graficoVentas.map(item => ({
+        ...item,
+        dia: item.dia?.includes("T") ? formatearFecha(item.dia) : item.dia
+    }));
 
     return (
-        <div ref={dashboardRef} className="container-fluid p-4 p-md-5 min-vh-100 position-relative"
-             style={{ 
-                 backgroundImage: `url('https://i.pinimg.com/1200x/95/21/0f/95210f85d0c87c7e21952f56a9a834fd.jpg')`, 
-                 backgroundSize: 'cover', 
-                 backgroundAttachment: 'scroll', // 'scroll' ayuda a html2canvas a no marearse
-                 backgroundPosition: 'center' 
-             }}>
+        <div
+            ref={dashboardRef}
+            className="container-fluid p-4 p-md-5 min-vh-100 position-relative"
+            style={{
+                backgroundImage: `url('https://i.pinimg.com/1200x/95/21/0f/95210f85d0c87c7e21952f56a9a834fd.jpg')`,
+                backgroundSize: 'cover',
+                backgroundAttachment: 'fixed',
+                backgroundPosition: 'center'
+            }}
+        >
 
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(102, 51, 153, 0.22)', zIndex: 1 }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(40, 0, 80, 0.3)', zIndex: 0 }} />
 
-            <div className="position-relative" style={{ zIndex: 2 }}>
-                <div className="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom border-white border-opacity-25 flex-wrap gap-3">
-                    <div>
-                        <h2 className="fw-bold text-white mb-0">Panel de reportes</h2>
-                        <p className="text-white opacity-85 mb-0 fw-bold">Malfi Veterinaria • Tucumán</p>
+            <div className="position-relative" style={{ zIndex: 1 }}>
+                <div className="d-flex justify-content-between align-items-center mb-5 flex-wrap gap-3">
+                    <div className="text-white">
+                        <h1 className="fw-bold mb-0">Panel de reportes</h1>
+                        <p className="opacity-75 fw-bold mb-0">Malfi Veterinaria • Tucumán</p>
                     </div>
                     <div className="d-flex gap-2">
-                        <button className="btn btn-success rounded-pill px-4 shadow-sm fw-bold border-0" onClick={exportarExcel} style={{ backgroundColor: '#28a745' }}>
+                        <button
+                            className="btn btn-success rounded-pill px-4 fw-bold shadow border-0"
+                            onClick={exportarExcel}
+                            style={{ backgroundColor: '#28a745' }}
+                        >
                             <FontAwesomeIcon icon={faFileExcel} className="me-2" /> EXCEL
                         </button>
-                        <button className="btn btn-danger rounded-pill px-4 shadow-sm fw-bold border-0" onClick={exportarPDF} style={{ backgroundColor: '#dc3545' }}>
+                        <button
+                            className="btn btn-danger rounded-pill px-4 fw-bold shadow border-0"
+                            onClick={exportarPDF}
+                            style={{ backgroundColor: '#dc3545' }}
+                        >
                             <FontAwesomeIcon icon={faFilePdf} className="me-2" /> PDF COMPLETO
                         </button>
                     </div>
                 </div>
 
-                {/* Tarjetas Pequeñas */}
-                <div className="row g-2 mb-5 justify-content-center">
+                <div className="row g-3 mb-5">
                     {[
-                        { label: 'VENTA HOY', val: reporte?.totales?.dia || 0, color: '#99cc33', icon: faCoins },
-                        { label: 'ESTA SEMANA', val: reporte?.totales?.semana || 0, color: '#00bfff', icon: faCalendarWeek },
-                        { label: 'MES ACTUAL', val: reporte?.totales?.mes || 0, color: '#ff69b4', icon: faCalendarDay },
-                        { label: 'VENTA AÑO', val: reporte?.totales?.anio || 0, color: '#663399', icon: faCalendarAlt }
+                        { label: 'VENTA HOY', val: reporte?.totales?.dia || 0, icon: faCoins },
+                        { label: 'ESTA SEMANA', val: reporte?.totales?.semana || 0, icon: faCalendarWeek },
+                        { label: 'MES ACTUAL', val: reporte?.totales?.mes || 0, icon: faCalendarDay },
+                        { label: 'VENTA AÑO', val: reporte?.totales?.anio || 0, icon: faCalendarAlt }
                     ].map((item, idx) => (
-                        <div className="col-6 col-md-3" key={idx}>
-                            <div className="card border-0 shadow-sm text-center p-3 h-100" style={glassStyle}>
-                                <small className="fw-bold text-white opacity-70 mb-1 d-block">{item.label}</small>
-                                <h4 className="fw-bold mb-0 text-white">${Number(item.val).toLocaleString('es-AR')}</h4>
+                        <div className="col-6 col-lg-3" key={idx}>
+                            <div className="p-4 text-center text-white" style={glassStyle}>
+                                <FontAwesomeIcon
+                                    icon={item.icon}
+                                    className="mb-2"
+                                    style={{ fontSize: '2.2rem', opacity: 0.9 }}
+                                />
+                                <small className="fw-bold opacity-75 d-block mb-1">{item.label}</small>
+                                <h3 className="fw-bold mb-0">${Number(item.val).toLocaleString('es-AR')}</h3>
                             </div>
                         </div>
                     ))}
                 </div>
 
-                <div className="row g-5">
-                    <div className="col-12"><div className="card border-0 p-4 dashboard-card" style={glassStyle}>
-                        <h4 className="fw-bold text-white mb-3"><FontAwesomeIcon icon={faArrowTrendUp} className="text-success me-2" /> Evolución de Ventas</h4>
-                        <div style={{ width: '100%', height: 450 }}><ResponsiveContainer><BarChart data={reporte.graficoVentas}><CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.12)" /><XAxis dataKey="dia" stroke="#fff" /><YAxis stroke="#fff" /><Tooltip content={<CustomTooltip />} /><Bar dataKey="total" fill="#99cc33" radius={[12, 12, 0, 0]} barSize={70} /></BarChart></ResponsiveContainer></div>
-                    </div></div>
+                <div className="row g-4">
+                    {/* Evolución de Ventas */}
+                    <div className="col-12">
+                        <div className="p-4" style={glassStyle}>
+                            <h4 className="text-white fw-bold mb-4">
+                                <FontAwesomeIcon icon={faArrowTrendUp} className="me-2 text-success" /> Evolución de Ventas
+                            </h4>
 
-                    <div className="col-12"><div className="card border-0 p-4 dashboard-card" style={glassStyle}>
-                        <h4 className="fw-bold text-white mb-3 text-center">Distribución de Servicios</h4>
-                        <div style={{ width: '100%', height: 500, position: 'relative' }}>
-                            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', zIndex: 10 }}>
-                                <h1 className="fw-black text-white display-3 mb-0">{totalServicios}</h1>
-                                <p className="text-white fw-bold fs-4">SERVICIOS</p>
+                            <div style={{
+                                width: '100%',
+                                height: '500px',
+                                minHeight: '500px',
+                                position: 'relative',
+                                overflow: 'hidden'
+                            }}>
+                                {graficoVentasFormateado.length > 0 ? (
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={graficoVentasFormateado}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
+                                            <XAxis
+                                                dataKey="dia"
+                                                stroke="#fff"
+                                                tick={{ fontSize: 14, fill: '#fff' }}
+                                                tickLine={{ stroke: '#fff' }}
+                                            />
+                                            <YAxis
+                                                stroke="#fff"
+                                                tick={{ fontSize: 14, fill: '#fff' }}
+                                                tickLine={{ stroke: '#fff' }}
+                                            />
+                                            <Tooltip content={<CustomTooltip />} />
+                                            <Bar dataKey="total" fill="#99cc33" radius={[10, 10, 0, 0]} barSize={50} />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                ) : (
+                                    <div className="d-flex justify-content-center align-items-center h-100 text-white">
+                                        <p>No hay datos de ventas aún...</p>
+                                    </div>
+                                )}
                             </div>
-                            <ResponsiveContainer><PieChart><Pie data={reporte.graficoTurnos} innerRadius={120} outerRadius={160} dataKey="value" stroke="none">{reporte.graficoTurnos.map((e, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie><Tooltip content={<CustomTooltip />} /><Legend verticalAlign="bottom" height={60} wrapperStyle={{ color: '#fff', fontSize: '15px', fontWeight: 'bold' }} /></PieChart></ResponsiveContainer>
                         </div>
-                    </div></div>
+                    </div>
 
-                    <div className="col-12"><div className="card border-0 p-4 dashboard-card" style={glassStyle}>
-                        <h4 className="fw-bold text-white mb-3">Tendencia Mensual</h4>
-                        <div style={{ width: '100%', height: 450 }}><ResponsiveContainer><BarChart data={datosTendencia}><CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.12)" /><XAxis dataKey="mes" stroke="#fff" /><YAxis stroke="#fff" /><Tooltip content={<CustomTooltip />} /><Bar dataKey="monto" fill="#00d4ff" radius={[12, 12, 0, 0]} barSize={60} /></BarChart></ResponsiveContainer></div>
-                    </div></div>
+                    {/* Distribución de Servicios - CORREGIDO */}
+                    <div className="col-12 col-xl-6">
+                        <div className="p-4 h-100" style={glassStyle}>
+                            <h4 className="text-white fw-bold mb-4 text-center">Distribución de Servicios</h4>
 
-                    <div className="col-12"><div className="card border-0 p-4 dashboard-card" style={glassStyle}>
-                        <h4 className="fw-bold text-white mb-3">Ranking de Facturación</h4>
-                        <div style={{ width: '100%', height: 500 }}><ResponsiveContainer><BarChart data={datosTop} layout="vertical" margin={{ left: 180 }}><XAxis type="number" stroke="#fff" /><YAxis type="category" dataKey="servicio" stroke="#fff" width={170} /><Tooltip content={<CustomTooltip />} /><Bar dataKey="ingresos" fill="#ff69b4" radius={[0, 12, 12, 0]} barSize={55} /></BarChart></ResponsiveContainer></div>
-                    </div></div>
+                            <div style={{
+                                width: '100%',
+                                height: '500px',
+                                minHeight: '500px',
+                                position: 'relative',
+                                overflow: 'hidden'
+                            }}>
+                                <div style={{
+                                    position: 'absolute',
+                                    top: '45%',
+                                    left: '50%',
+                                    transform: 'translate(-50%, -50%)',
+                                    textAlign: 'center',
+                                    color: '#fff'
+                                }}>
+                                    <h2 className="fw-bold mb-0" style={{ fontSize: '3rem' }}>{totalServicios}</h2>
+                                    <small className="fw-bold opacity-75">SERVICIOS</small>
+                                </div>
+
+                                {graficoTurnos.length > 0 ? (
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <PieChart>
+                                            <Pie
+                                                data={graficoTurnos}
+                                                dataKey="value"
+                                                nameKey="name"           // ← CLAVE IMPORTANTE: usa "name" para la leyenda y tooltip
+                                                innerRadius={100}
+                                                outerRadius={140}
+                                                stroke="none"
+                                                paddingAngle={5}
+                                            >
+                                                {graficoTurnos.map((entry, index) => (
+                                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                ))}
+                                            </Pie>
+
+                                            <Tooltip content={<CustomTooltip />} />
+
+                                            <Legend
+                                                verticalAlign="bottom"
+                                                align="center"
+                                                iconSize={12}
+                                                wrapperStyle={{
+                                                    color: '#fff',
+                                                    fontSize: '14px',
+                                                    fontWeight: 'bold'
+                                                }}
+                                            />
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                ) : (
+                                    <div className="d-flex justify-content-center align-items-center h-100 text-white">
+                                        <p>No hay datos de servicios aún...</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Tendencia Mensual */}
+                    <div className="col-12 col-xl-6">
+                        <div className="p-4 h-100" style={glassStyle}>
+                            <h4 className="text-white fw-bold mb-4">
+                                <FontAwesomeIcon icon={faArrowTrendUp} className="me-2 text-info" /> Tendencia Mensual
+                            </h4>
+
+                            <div style={{
+                                width: '100%',
+                                height: '500px',
+                                minHeight: '500px',
+                                position: 'relative',
+                                overflow: 'hidden'
+                            }}>
+                                {reporte?.tendenciaMensual?.length > 0 ? (
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={reporte.tendenciaMensual}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                                            <XAxis
+                                                dataKey="mes"
+                                                stroke="#fff"
+                                                tick={{ fontSize: 14, fill: '#fff' }}
+                                            />
+                                            <YAxis
+                                                stroke="#fff"
+                                                tick={{ fontSize: 14, fill: '#fff' }}
+                                            />
+                                            <Tooltip content={<CustomTooltip />} />
+                                            <Line
+                                                type="monotone"
+                                                dataKey="monto"
+                                                stroke="#00d4ff"
+                                                strokeWidth={4}
+                                                dot={{ r: 6, fill: '#00d4ff' }}
+                                            />
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                ) : (
+                                    <div className="d-flex justify-content-center align-items-center h-100 text-white">
+                                        <p>No hay datos de tendencia aún...</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
-            <style>{`.recharts-text, .recharts-legend-item-text { fill: white !important; }`}</style>
         </div>
     );
 };

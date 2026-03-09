@@ -1,4 +1,3 @@
-// src/component/Sidebar.jsx
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -22,11 +21,27 @@ const Sidebar = () => {
   const esRecepcionista = rol === 'recepcionista';
   const esPeluquero = rol === 'peluquero';
 
-  const colorFondo = esAdmin 
-    ? 'linear-gradient(180deg, #6a1b9a 0%, #9c27b0 100%)'
-    : 'linear-gradient(180deg, #ff9ac7 0%, #ff69b4 100%)';
+  // Colores por rol - personalizados
+  let colorFondo;
+  let colorIconoPaw;
+  let colorActivo = 'rgba(255, 255, 255, 0.25)';
 
-  const colorActivo = 'rgba(255, 255, 255, 0.25)';
+  if (esAdmin) {
+    colorFondo = 'linear-gradient(180deg, #6a1b9a 0%, #9c27b0 100%)';      // Morado original
+    colorIconoPaw = '#ab47bc';
+  } else if (esVeterinario) {
+    colorFondo = 'linear-gradient(180deg, #00acc1 0%, #26c6da 100%)';      // Celeste/Turquesa
+    colorIconoPaw = '#006D77';                                             // ← Azul oscuro que contrasta perfecto con blanco
+  } else if (esPeluquero) {
+    colorFondo = 'linear-gradient(180deg, #ff9ac7 0%, #ff69b4 100%)';      // Rosa
+    colorIconoPaw = '#ff69b4';
+  } else if (esRecepcionista) {
+    colorFondo = 'linear-gradient(180deg, #4caf50 0%, #66bb6a 100%)';      // Verde fresco
+    colorIconoPaw = '#1B5E20';                                             // ← Verde oscuro fuerte, queda hermoso
+  } else {
+    colorFondo = 'linear-gradient(180deg, #757575 0%, #9e9e9e 100%)';      // Gris fallback
+    colorIconoPaw = '#424242';
+  }
 
   const menuItems = [
     { name: 'Inicio', path: '/home', icon: faHome },
@@ -36,11 +51,12 @@ const Sidebar = () => {
     menuItems.push({ name: 'Pacientes', path: '/mascotas', icon: faPaw });
   }
 
-  if (!esPeluquero || esAdmin) {
+  if (!esPeluquero || esAdmin || esRecepcionista) {
     menuItems.push({ name: 'Turnos', path: '/turnos', icon: faCalendarCheck });
   }
 
-  if (esPeluquero || esAdmin) {
+  // ← CORRECCIÓN: ahora también Recepcionista ve Estética
+  if (esPeluquero || esAdmin || esRecepcionista) {
     menuItems.push({ name: 'Estética / Peluquería', path: '/estetica', icon: faScissors });
   }
 
@@ -96,8 +112,19 @@ const Sidebar = () => {
       }}
     >
       <div className="d-flex align-items-center mb-5">
-        <div className="bg-white rounded-circle p-2 me-3 d-flex align-items-center justify-content-center shadow-sm" style={{ width: '45px', height: '45px' }}>
-          <FontAwesomeIcon icon={faPaw} size="lg" style={{ color: esAdmin ? '#ab47bc' : '#ff69b4' }} />
+        <div 
+          className="bg-white rounded-circle p-2 me-3 d-flex align-items-center justify-content-center shadow-sm"
+          style={{ 
+            width: '50px', 
+            height: '50px',
+            border: '2px solid rgba(0,0,0,0.1)'  // ← borde sutil para que destaque más
+          }}
+        >
+          <FontAwesomeIcon 
+            icon={faPaw} 
+            size="xl"  // ← Cambiado de lg a xl para que se vea más grande y clara
+            style={{ color: colorIconoPaw }} 
+          />
         </div>
         <div>
           <span className="fs-4 fw-bold d-block">Malfi</span>

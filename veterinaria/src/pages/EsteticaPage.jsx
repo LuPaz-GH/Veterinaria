@@ -8,6 +8,7 @@ import {
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import api from '../services/api';  // ← AXIOS CON TOKEN
 
 const EsteticaPage = () => {
   const [servicios, setServicios] = useState([]);
@@ -34,7 +35,8 @@ const EsteticaPage = () => {
     nueva_mascota_especie: 'Perro',
     nueva_mascota_raza: '',
     nuevo_dueno_nombre: '',
-    nuevo_dueno_telefono: ''
+    nuevo_dueno_telefono: '',
+    motivo: 'Turno de estética'  // ← AGREGADO: valor por defecto para evitar error en INSERT
   });
 
   const opcionesServicios = [
@@ -45,7 +47,7 @@ const EsteticaPage = () => {
 
   const mostrarAviso = (mensaje, tipo = 'success') => {
     setNotificacion({ show: true, mensaje, tipo });
-    setTimeout(() => setNotificacion({ show: false, mensaje: '', tipo: 'success' }), 3000);
+    setTimeout(() => setNotificacion({ show: false, mensaje: '', tipo: 'success' }), 4500);
   };
 
   const exportarExcel = () => {
@@ -53,9 +55,9 @@ const EsteticaPage = () => {
     const datosExcel = filtrados.map(s => ({
       Mascota: s.mascota || 'Sin nombre',
       Dueño: s.dueno || 'Sin dueño',
-      Servicio: s.tipo_servicio,
-      Fecha: new Date(s.hora).toLocaleDateString('es-AR'),
-      Hora: new Date(s.hora).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+      Servicio: s.servicio,
+      Fecha: s.fecha || 'Sin fecha',
+      Hora: s.hora || 'Sin hora',
       Estado: s.realizado === 0 ? 'Pendiente' : s.realizado === 1 ? 'En proceso' : 'Listo'
     }));
     const ws = XLSX.utils.json_to_sheet(datosExcel);
@@ -71,8 +73,8 @@ const EsteticaPage = () => {
     const tablaData = filtrados.map(s => [
       s.mascota || 'Sin nombre',
       s.dueno || 'Sin dueño',
-      s.tipo_servicio,
-      new Date(s.hora).toLocaleDateString('es-AR') + " " + new Date(s.hora).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+      s.servicio,
+      `${s.fecha || ''} ${s.hora || ''}`,
       s.realizado === 0 ? 'Pendiente' : s.realizado === 1 ? 'En proceso' : 'Listo'
     ]);
     autoTable(doc, {
@@ -91,43 +93,108 @@ const EsteticaPage = () => {
       setError(null);
       const ts = Date.now();
       const [resE, resM] = await Promise.all([
-        fetch(`http://localhost:3001/api/estetica?t=${ts}`),
-        fetch(`http://localhost:3001/api/mascotas?t=${ts}`)
+        api.get(`/estetica?t=${ts}`),
+        api.get(`/mascotas?t=${ts}`)
       ]);
-      if (!resE.ok || !resM.ok) throw new Error(`Error al cargar datos`);
-      const dataE = await resE.json();
-      const dataM = await resM.json();
-      setServicios(Array.isArray(dataE) ? dataE : []);
-      setMascotas(Array.isArray(dataM) ? dataM : []);
-    } catch (err) { setError(err.message); } finally { setLoading(false); }
+      setServicios(Array.isArray(resE.data) ? resE.data : []);
+      setMascotas(Array.isArray(resM.data) ? resM.data : []);
+    } catch (err) { 
+      setError(err.message); 
+      console.error("Error al cargar datos de estética:", err);
+      if (err.response?.status === 401) {
+        alert("Sesión expirada. Por favor, inicia sesión nuevamente.");
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+      }
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   useEffect(() => { cargarDatos(); }, []);
 
   const handleGuardarTurno = async (e) => {
     e.preventDefault();
+
+    // Formateamos la fecha correctamente para MySQL (YYYY-MM-DD HH:mm:ss)
     const fechaMysql = formData.fecha.replace('T', ' ') + ':00';
-    let body = { fecha: fechaMysql, tipo: 'estetica', tipo_servicio: formData.tipo_servicio, precio: 0 };
+
+    // Preparamos el body
+    let body = { 
+      fecha: fechaMysql.split(' ')[0],  // solo YYYY-MM-DD para compatibilidad
+      hora: fechaMysql.split(' ')[1].substring(0,5),  // HH:mm
+      tipo: 'estetica', 
+      motivo: formData.motivo || 'Turno de estética/peluquería',
+      servicio: formData.tipo_servicio,  // ← backend espera "servicio"
+      precio: 0 
+    };
+
     if (!isNuevaMascota) {
+      if (!formData.mascota_id) {
+        mostrarAviso("Selecciona una mascota o registra una nueva", "error");
+        return;
+      }
       const mascotaSel = mascotas.find(m => m.id === parseInt(formData.mascota_id));
       body.mascota_id = parseInt(formData.mascota_id);
       body.dueno_id = mascotaSel?.dueno_id;
     } else {
+      if (!formData.nueva_mascota_nombre.trim() || !formData.nuevo_dueno_nombre.trim()) {
+        mostrarAviso("Completa nombre de mascota y dueño", "error");
+        return;
+      }
       body.es_nueva_mascota = true;
       body.mascota_nombre = formData.nueva_mascota_nombre.trim();
       body.especie = formData.nueva_mascota_especie;
-      body.raza = formData.nueva_mascota_raza.trim();
+      body.raza = formData.nueva_mascota_raza.trim() || null;
       body.dueno_nombre = formData.nuevo_dueno_nombre.trim();
-      body.dueno_telefono = formData.nuevo_dueno_telefono.trim();
+      body.dueno_telefono = formData.nuevo_dueno_telefono.trim() || null;
     }
+
+    console.log('[DEBUG FRONTEND] Enviando turno:', body);
+
     try {
-      const url = datosEdicion ? `http://localhost:3001/api/turnos/${datosEdicion.turno_id}` : 'http://localhost:3001/api/turnos';
+      const url = datosEdicion ? `/estetica/${datosEdicion.id}` : '/estetica';  // ← ajustado a /estetica
       const method = datosEdicion ? 'PUT' : 'POST';
-      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      if (!res.ok) throw new Error('Error al guardar');
-      setShowModal(false); setDatosEdicion(null); setIsNuevaMascota(false); cargarDatos();
+
+      const res = await api({
+        url,
+        method,
+        data: body
+      });
+
+      setShowModal(false); 
+      setDatosEdicion(null); 
+      setIsNuevaMascota(false); 
+      cargarDatos();
       mostrarAviso(datosEdicion ? "Turno actualizado correctamente" : "¡Turno registrado con éxito!", "success");
-    } catch (err) { mostrarAviso("Error al procesar la solicitud", "error"); }
+    } catch (err) {
+      console.error('[ERROR FRONTEND] Al guardar turno:', err);
+
+      const errorMsg = (err.response?.data?.error || err.message || '').toLowerCase();
+
+      if (
+        err.response?.status === 409 ||
+        errorMsg.includes('ocupado') ||
+        errorMsg.includes('horario ya está') ||
+        errorMsg.includes('horario_ocu')
+      ) {
+        mostrarAviso(
+          "¡Uy! 😅 Ese horario ya está ocupado...\n\n" +
+          "Alguien reservó justo antes que vos.\n" +
+          "Elegí otro día u otra hora, ¡seguro hay uno perfecto para tu peludito! 🐾✂️",
+          "error"
+        );
+      } else {
+        mostrarAviso(
+          "¡Algo salió mal! 😓\n\n" +
+          "Hubo un problema al conectar con el servidor.\n" +
+          "Intentá de nuevo en unos segundos.\n\n" +
+          "Si sigue fallando, contáctanos por favor.",
+          "error"
+        );
+      }
+    }
   };
 
   const handleEditar = (turno) => {
@@ -135,9 +202,14 @@ const EsteticaPage = () => {
     setIsNuevaMascota(false);
     setFormData({
       mascota_id: turno.mascota_id || '',
-      tipo_servicio: turno.tipo_servicio || 'Baño y Corte Completo',
-      fecha: turno.hora ? turno.hora.substring(0, 16) : new Date().toISOString().slice(0, 16),
-      nueva_mascota_nombre: '', nueva_mascota_especie: 'Perro', nueva_mascota_raza: '', nuevo_dueno_nombre: '', nuevo_dueno_telefono: ''
+      tipo_servicio: turno.servicio || 'Baño y Corte Completo',
+      fecha: turno.fecha ? `${turno.fecha}T${turno.hora || '00:00'}` : new Date().toISOString().slice(0, 16),
+      nueva_mascota_nombre: '', 
+      nueva_mascota_especie: 'Perro', 
+      nueva_mascota_raza: '', 
+      nuevo_dueno_nombre: '', 
+      nuevo_dueno_telefono: '',
+      motivo: 'Turno de estética'
     });
     setShowModal(true);
   };
@@ -148,52 +220,65 @@ const EsteticaPage = () => {
 
   const confirmarEliminar = async () => {
     try {
-      const res = await fetch(`http://localhost:3001/api/estetica/${confirmacion.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Error al eliminar');
+      await api.delete(`/estetica/${confirmacion.id}`);
       setConfirmacion({ show: false, id: null, mensaje: '', nombreMascota: '' });
-      cargarDatos(); mostrarAviso("Registro eliminado correctamente", "success");
-    } catch (err) { mostrarAviso("No se pudo eliminar el turno", "error"); }
+      cargarDatos(); 
+      mostrarAviso("Registro eliminado correctamente", "success");
+    } catch (err) { 
+      mostrarAviso("No se pudo eliminar el turno", "error"); 
+    }
   };
 
   const cambiarEstado = async (id, nuevoEstado) => {
     try {
-      const res = await fetch(`http://localhost:3001/api/estetica/${id}/estado`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ realizado: nuevoEstado })
-      });
-      if (!res.ok) throw new Error("Error al actualizar estado");
-      await cargarDatos(); mostrarAviso("Estado actualizado", "success");
+      await api.put(`/estetica/${id}`, { realizado: nuevoEstado });
+      await cargarDatos(); 
+      mostrarAviso("Estado actualizado", "success");
     } catch (err) { mostrarAviso("Error al cambiar el estado", "error"); }
   };
 
-  const filtrados = servicios.filter(s =>
-    (s.mascota || '').toLowerCase().includes(busqueda.toLowerCase()) ||
-    (s.dueno || '').toLowerCase().includes(busqueda.toLowerCase())
-  );
+  const filtrados = Array.isArray(servicios) 
+    ? servicios.filter(s =>
+        (s.mascota || '').toLowerCase().includes(busqueda.toLowerCase()) ||
+        (s.dueno || '').toLowerCase().includes(busqueda.toLowerCase())
+      )
+    : [];
 
-  const gruposPorFecha = filtrados.reduce((grupos, s) => {
-    const d = new Date(s.hora);
-    const key = !isNaN(d) ? d.toLocaleDateString('es-AR') : "Sin fecha";
-    if (!grupos[key]) grupos[key] = [];
-    grupos[key].push(s);
-    return grupos;
-  }, {});
+  // ──────────────────────────────────────────────
+  //           AGRUPACIÓN POR FECHA CORREGIDA
+  // ──────────────────────────────────────────────
 
-  Object.keys(gruposPorFecha).forEach(key => {
-    gruposPorFecha[key].sort((a, b) => new Date(a.hora) - new Date(b.hora));
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+
+  const turnosPasados = [];
+  const turnosHoy = [];
+  const turnosFuturos = [];
+
+  filtrados.forEach(s => {
+    if (!s.fecha) {
+      turnosPasados.push(s);
+      return;
+    }
+    const fechaTurno = new Date(`${s.fecha}T${s.hora || '00:00'}:00`);
+    fechaTurno.setHours(0, 0, 0, 0);
+
+    if (fechaTurno < hoy) {
+      turnosPasados.push(s);
+    } else if (fechaTurno.getTime() === hoy.getTime()) {
+      turnosHoy.push(s);
+    } else {
+      turnosFuturos.push(s);
+    }
   });
 
-  const hoyStr = new Date().toLocaleDateString('es-AR');
-  const fechasOrdenadas = Object.keys(gruposPorFecha).sort((a, b) => {
-    if (a === hoyStr) return -1;
-    if (b === hoyStr) return 1;
-    const dateA = new Date(a.split('/').reverse().join('-'));
-    const dateB = new Date(b.split('/').reverse().join('-'));
-    const hoyDate = new Date(new Date().setHours(0, 0, 0, 0));
-    if (dateA > hoyDate && dateB <= hoyDate) return -1;
-    if (dateA <= hoyDate && dateB > hoyDate) return 1;
-    return dateA > hoyDate ? dateA - dateB : dateB - dateA;
-  });
+  const ordenarPorHora = (a, b) => (a.hora || '00:00').localeCompare(b.hora || '00:00');
+
+  turnosPasados.sort(ordenarPorHora);
+  turnosHoy.sort(ordenarPorHora);
+  turnosFuturos.sort(ordenarPorHora);
+
+  const hoyStr = hoy.toLocaleDateString('es-AR');
 
   return (
     <div style={{ 
@@ -205,29 +290,71 @@ const EsteticaPage = () => {
       position: 'relative',
       padding: '2rem' 
     }}>
-      {/* Overlay más transparente para que se note la imagen */}
-      <div style={{
-        position: 'absolute',
-        inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.2)', 
-        zIndex: 0
-      }} />
-      
       <div style={{ maxWidth: '1400px', margin: '0 auto', position: 'relative', zIndex: 1 }}>
         
-        {/* NOTIFICACIÓN */}
         {notificacion.show && (
-          <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5000, pointerEvents: 'none' }}>
-            <div style={{ background: 'white', color: '#333', padding: '3rem', borderRadius: '40px', boxShadow: '0 25px 50px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', animation: 'modalPopUp 0.4s ease-out', borderBottom: `10px solid ${notificacion.tipo === 'success' ? '#2ecc71' : '#e74c3c'}`, maxWidth: '450px', width: '90%' }}>
-              <div style={{ background: notificacion.tipo === 'success' ? '#2ecc71' : '#e74c3c', width: '80px', height: '80px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}>
-                  <FontAwesomeIcon icon={notificacion.tipo === 'success' ? faCheck : faTimes} size="3x" />
-              </div>
-              <h2 style={{ fontWeight: '900', fontSize: '1.8rem', textAlign: 'center', margin: 0 }}>{notificacion.mensaje}</h2>
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 5000
+          }}>
+            <div style={{
+              background: 'white',
+              borderRadius: '16px',
+              padding: '2.5rem',
+              maxWidth: '500px',
+              width: '90%',
+              boxShadow: '0 25px 60px rgba(0,0,0,0.4)',
+              position: 'relative',
+              borderTop: `8px solid ${notificacion.tipo === 'success' ? '#28a745' : '#dc3545'}`,
+              textAlign: 'center',
+              animation: 'popIn 0.3s ease-out'
+            }}>
+              <h2 style={{
+                margin: '0 0 1.5rem 0',
+                fontSize: '1.8rem',
+                fontWeight: 'bold',
+                color: notificacion.tipo === 'success' ? '#28a745' : '#dc3545'
+              }}>
+                {notificacion.tipo === 'success' ? '¡Éxito!' : 'Atención'}
+              </h2>
+
+              <p style={{
+                whiteSpace: 'pre-line',
+                margin: '0 0 2rem 0',
+                fontSize: '1.15rem',
+                lineHeight: '1.6',
+                color: '#333'
+              }}>
+                {notificacion.mensaje}
+              </p>
+
+              <button
+                onClick={() => setNotificacion({ show: false, mensaje: '', tipo: 'success' })}
+                style={{
+                  padding: '0.9rem 2.8rem',
+                  background: notificacion.tipo === 'success' ? '#28a745' : '#dc3545',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '50px',
+                  fontSize: '1.1rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  boxShadow: '0 6px 20px rgba(0,0,0,0.2)',
+                  transition: 'all 0.25s'
+                }}
+              >
+                Entendido
+              </button>
             </div>
           </div>
         )}
 
-        {/* CONFIRMACIÓN */}
         {confirmacion.show && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 4000, backdropFilter: 'blur(10px)' }}>
             <div style={{ background: 'white', padding: '3rem', borderRadius: '40px', maxWidth: '550px', width: '95%', textAlign: 'center', color: '#333', animation: 'modalPopUp 0.3s ease-out' }}>
@@ -264,19 +391,69 @@ const EsteticaPage = () => {
         </div>
 
         {!loading && !error && (
-          fechasOrdenadas.map(fecha => (
-            <div key={fecha} style={{ marginBottom: '3rem' }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', background: 'rgba(255, 255, 255, 0.85)', backdropFilter: 'blur(8px)', color: '#2575fc', fontWeight: 'bold', padding: '0.6rem 1.5rem', borderRadius: '50px', marginBottom: '1.5rem', boxShadow: '0 4px 10px rgba(0,0,0,0.2)' }}>
-                <FontAwesomeIcon icon={faCalendarAlt} style={{ marginRight: '0.8rem' }} />{fecha === hoyStr ? "HOY" : fecha}
+          <>
+            {turnosHoy.length > 0 && (
+              <div style={{ marginBottom: '3.5rem' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', background: 'rgba(40, 167, 69, 0.85)', backdropFilter: 'blur(8px)', color: 'white', fontWeight: 'bold', padding: '0.8rem 1.8rem', borderRadius: '50px', marginBottom: '1.8rem', boxShadow: '0 4px 14px rgba(0,0,0,0.25)' }}>
+                  <FontAwesomeIcon icon={faCalendarAlt} style={{ marginRight: '0.9rem', fontSize: '1.3rem' }} /> HOY — {hoyStr}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem' }}>
+                  {turnosHoy.map(s => (
+                    <div 
+                      key={s.id} 
+                      onMouseEnter={() => setHoverId(s.id)}
+                      onMouseLeave={() => setHoverId(null)}
+                      className="card-estetica"
+                      style={{ 
+                        background: 'rgba(255, 255, 255, 0.82)', 
+                        backdropFilter: 'blur(10px)',
+                        WebkitBackdropFilter: 'blur(10px)',
+                        color: '#000', 
+                        borderRadius: '25px', 
+                        padding: '1.8rem', 
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.15)', 
+                        transition: 'all 0.3s ease',
+                        border: '1px solid rgba(255, 255, 255, 0.4)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+                        <h5 style={{ margin: 0, color: '#2d0a4e', fontSize: '1.5rem', fontWeight: '800' }}>{s.mascota || 'Sin nombre'}</h5>
+                        <span style={{ padding: '0.5rem 1.2rem', borderRadius: '50px', fontSize: '0.8rem', fontWeight: '900', background: s.realizado === 0 ? '#ffc107' : s.realizado === 1 ? '#007bff' : '#28a745', color: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
+                          {s.realizado === 0 ? 'PENDIENTE' : s.realizado === 1 ? 'EN PROCESO' : 'LISTO'}
+                        </span>
+                      </div>
+                      <p style={{fontSize: '1.1rem', marginBottom: '8px'}}>Dueño: <strong>{s.dueno || 'Sin dueño'}</strong></p>
+                      <p style={{ color: '#444', fontWeight: '500', marginBottom: '8px' }}>
+                        <FontAwesomeIcon icon={faClock} /> {s.hora || 'Sin hora'}
+                      </p>
+                      <p style={{ fontStyle: 'italic', marginBottom: '20px', color: '#4b0082', fontWeight: '700' }}>{s.servicio}</p>
+                      <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+                        {s.realizado === 0 && <button onClick={() => cambiarEstado(s.id, 1)} style={{ flex: 1, background: '#007bff', color: 'white', border: 'none', padding: '12px', borderRadius: '15px', cursor: 'pointer', fontWeight: '800', boxShadow: '0 4px 12px rgba(0,123,255,0.3)' }}><FontAwesomeIcon icon={faPlay} /> INICIAR</button>}
+                        {s.realizado === 1 && <button onClick={() => cambiarEstado(s.id, 2)} style={{ flex: 1, background: '#28a745', color: 'white', border: 'none', padding: '12px', borderRadius: '15px', cursor: 'pointer', fontWeight: '800', boxShadow: '0 4px 12px rgba(40,167,69,0.3)' }}><FontAwesomeIcon icon={faCheckCircle} /> FINALIZAR</button>}
+                      </div>
+                      <div style={{ display: 'flex', gap: '10px', borderTop: '2px solid rgba(0,0,0,0.05)', paddingTop: '15px' }}>
+                        <button onClick={() => handleEditar(s)} style={{ flex: 1, background: '#ffc107', border: 'none', padding: '10px', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold' }}><FontAwesomeIcon icon={faEdit} /> Editar</button>
+                        <button onClick={() => handleEliminarClick(s.id, s.mascota)} style={{ flex: 1, background: '#dc3545', color: 'white', border: 'none', padding: '10px', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold' }}><FontAwesomeIcon icon={faTrash} /> Borrar</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem' }}>
-                {gruposPorFecha[fecha].map(s => (
-                  <div 
-                    key={s.id} 
-                    onMouseEnter={() => setHoverId(s.id)}
-                    onMouseLeave={() => setHoverId(null)}
-                    className="card-estetica"
-                    style={{ 
+            )}
+
+            {turnosFuturos.length > 0 && (
+              <div style={{ marginBottom: '3.5rem' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', background: 'rgba(37, 117, 252, 0.85)', backdropFilter: 'blur(8px)', color: 'white', fontWeight: 'bold', padding: '0.8rem 1.8rem', borderRadius: '50px', marginBottom: '1.8rem', boxShadow: '0 4px 14px rgba(0,0,0,0.25)' }}>
+                  <FontAwesomeIcon icon={faCalendarAlt} style={{ marginRight: '0.9rem', fontSize: '1.3rem' }} /> TURNOS FUTUROS
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem' }}>
+                  {turnosFuturos.map(s => (
+                    <div 
+                      key={s.id} 
+                      onMouseEnter={() => setHoverId(s.id)}
+                      onMouseLeave={() => setHoverId(null)}
+                      className="card-estetica"
+                      style={{ 
                         background: 'rgba(255, 255, 255, 0.75)', 
                         backdropFilter: 'blur(10px)',
                         WebkitBackdropFilter: 'blur(10px)',
@@ -286,28 +463,88 @@ const EsteticaPage = () => {
                         boxShadow: '0 8px 32px rgba(0,0,0,0.15)', 
                         transition: 'all 0.3s ease',
                         border: '1px solid rgba(255, 255, 255, 0.3)'
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
-                      <h5 style={{ margin: 0, color: '#2d0a4e', fontSize: '1.5rem', fontWeight: '800' }}>{s.mascota || 'Sin nombre'}</h5>
-                      <span style={{ padding: '0.5rem 1.2rem', borderRadius: '50px', fontSize: '0.8rem', fontWeight: '900', background: s.realizado === 0 ? '#ffc107' : s.realizado === 1 ? '#007bff' : '#28a745', color: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>{s.realizado === 0 ? 'PENDIENTE' : s.realizado === 1 ? 'EN PROCESO' : 'LISTO'}</span>
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+                        <h5 style={{ margin: 0, color: '#2d0a4e', fontSize: '1.5rem', fontWeight: '800' }}>{s.mascota || 'Sin nombre'}</h5>
+                        <span style={{ padding: '0.5rem 1.2rem', borderRadius: '50px', fontSize: '0.8rem', fontWeight: '900', background: s.realizado === 0 ? '#ffc107' : s.realizado === 1 ? '#007bff' : '#28a745', color: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
+                          {s.realizado === 0 ? 'PENDIENTE' : s.realizado === 1 ? 'EN PROCESO' : 'LISTO'}
+                        </span>
+                      </div>
+                      <p style={{fontSize: '1.1rem', marginBottom: '8px'}}>Dueño: <strong>{s.dueno || 'Sin dueño'}</strong></p>
+                      <p style={{ color: '#444', fontWeight: '500', marginBottom: '8px' }}>
+                        <FontAwesomeIcon icon={faClock} /> {s.hora || 'Sin hora'}
+                      </p>
+                      <p style={{ fontStyle: 'italic', marginBottom: '20px', color: '#4b0082', fontWeight: '700' }}>{s.servicio}</p>
+                      <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+                        {s.realizado === 0 && <button onClick={() => cambiarEstado(s.id, 1)} style={{ flex: 1, background: '#007bff', color: 'white', border: 'none', padding: '12px', borderRadius: '15px', cursor: 'pointer', fontWeight: '800', boxShadow: '0 4px 12px rgba(0,123,255,0.3)' }}><FontAwesomeIcon icon={faPlay} /> INICIAR</button>}
+                        {s.realizado === 1 && <button onClick={() => cambiarEstado(s.id, 2)} style={{ flex: 1, background: '#28a745', color: 'white', border: 'none', padding: '12px', borderRadius: '15px', cursor: 'pointer', fontWeight: '800', boxShadow: '0 4px 12px rgba(40,167,69,0.3)' }}><FontAwesomeIcon icon={faCheckCircle} /> FINALIZAR</button>}
+                      </div>
+                      <div style={{ display: 'flex', gap: '10px', borderTop: '2px solid rgba(0,0,0,0.05)', paddingTop: '15px' }}>
+                        <button onClick={() => handleEditar(s)} style={{ flex: 1, background: '#ffc107', border: 'none', padding: '10px', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold' }}><FontAwesomeIcon icon={faEdit} /> Editar</button>
+                        <button onClick={() => handleEliminarClick(s.id, s.mascota)} style={{ flex: 1, background: '#dc3545', color: 'white', border: 'none', padding: '10px', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold' }}><FontAwesomeIcon icon={faTrash} /> Borrar</button>
+                      </div>
                     </div>
-                    <p style={{fontSize: '1.1rem', marginBottom: '8px'}}>Dueño: <strong>{s.dueno || 'Sin dueño'}</strong></p>
-                    <p style={{ color: '#444', fontWeight: '500', marginBottom: '8px' }}><FontAwesomeIcon icon={faClock} /> {new Date(s.hora).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</p>
-                    <p style={{ fontStyle: 'italic', marginBottom: '20px', color: '#4b0082', fontWeight: '700' }}>{s.tipo_servicio}</p>
-                    <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
-                      {s.realizado === 0 && <button onClick={() => cambiarEstado(s.id, 1)} style={{ flex: 1, background: '#007bff', color: 'white', border: 'none', padding: '12px', borderRadius: '15px', cursor: 'pointer', fontWeight: '800', boxShadow: '0 4px 12px rgba(0,123,255,0.3)' }}><FontAwesomeIcon icon={faPlay} /> INICIAR</button>}
-                      {s.realizado === 1 && <button onClick={() => cambiarEstado(s.id, 2)} style={{ flex: 1, background: '#28a745', color: 'white', border: 'none', padding: '12px', borderRadius: '15px', cursor: 'pointer', fontWeight: '800', boxShadow: '0 4px 12px rgba(40,167,69,0.3)' }}><FontAwesomeIcon icon={faCheckCircle} /> FINALIZAR</button>}
-                    </div>
-                    <div style={{ display: 'flex', gap: '10px', borderTop: '2px solid rgba(0,0,0,0.05)', paddingTop: '15px' }}>
-                      <button onClick={() => handleEditar(s)} style={{ flex: 1, background: '#ffc107', border: 'none', padding: '10px', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold' }}><FontAwesomeIcon icon={faEdit} /> Editar</button>
-                      <button onClick={() => handleEliminarClick(s.id, s.mascota)} style={{ flex: 1, background: '#dc3545', color: 'white', border: 'none', padding: '10px', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold' }}><FontAwesomeIcon icon={faTrash} /> Borrar</button>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          ))
+            )}
+
+            {turnosPasados.length > 0 && (
+              <div style={{ marginBottom: '3.5rem', opacity: 0.92 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', background: 'rgba(108, 117, 125, 0.85)', backdropFilter: 'blur(8px)', color: 'white', fontWeight: 'bold', padding: '0.8rem 1.8rem', borderRadius: '50px', marginBottom: '1.8rem', boxShadow: '0 4px 14px rgba(0,0,0,0.25)' }}>
+                  <FontAwesomeIcon icon={faCalendarAlt} style={{ marginRight: '0.9rem', fontSize: '1.3rem' }} /> FECHAS ANTERIORES
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem' }}>
+                  {turnosPasados.map(s => (
+                    <div 
+                      key={s.id} 
+                      onMouseEnter={() => setHoverId(s.id)}
+                      onMouseLeave={() => setHoverId(null)}
+                      className="card-estetica"
+                      style={{ 
+                        background: 'rgba(255, 255, 255, 0.68)', 
+                        backdropFilter: 'blur(10px)',
+                        WebkitBackdropFilter: 'blur(10px)',
+                        color: '#444', 
+                        borderRadius: '25px', 
+                        padding: '1.8rem', 
+                        boxShadow: '0 6px 24px rgba(0,0,0,0.12)', 
+                        transition: 'all 0.3s ease',
+                        border: '1px solid rgba(200,200,200,0.5)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+                        <h5 style={{ margin: 0, color: '#4a4a4a', fontSize: '1.5rem', fontWeight: '800' }}>{s.mascota || 'Sin nombre'}</h5>
+                        <span style={{ padding: '0.5rem 1.2rem', borderRadius: '50px', fontSize: '0.8rem', fontWeight: '900', background: s.realizado === 0 ? '#adb5bd' : s.realizado === 1 ? '#6c757d' : '#28a745', color: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
+                          {s.realizado === 0 ? 'PENDIENTE' : s.realizado === 1 ? 'EN PROCESO' : 'LISTO'}
+                        </span>
+                      </div>
+                      <p style={{fontSize: '1.1rem', marginBottom: '8px'}}>Dueño: <strong>{s.dueno || 'Sin dueño'}</strong></p>
+                      <p style={{ color: '#555', fontWeight: '500', marginBottom: '8px' }}>
+                        <FontAwesomeIcon icon={faClock} /> {s.hora || 'Sin hora'}
+                      </p>
+                      <p style={{ fontStyle: 'italic', marginBottom: '20px', color: '#6c757d', fontWeight: '600' }}>{s.servicio}</p>
+                      <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+                        {s.realizado === 0 && <button onClick={() => cambiarEstado(s.id, 1)} style={{ flex: 1, background: '#6c757d', color: 'white', border: 'none', padding: '12px', borderRadius: '15px', cursor: 'pointer', fontWeight: '800', boxShadow: '0 4px 12px rgba(108,117,125,0.3)' }}><FontAwesomeIcon icon={faPlay} /> INICIAR</button>}
+                        {s.realizado === 1 && <button onClick={() => cambiarEstado(s.id, 2)} style={{ flex: 1, background: '#28a745', color: 'white', border: 'none', padding: '12px', borderRadius: '15px', cursor: 'pointer', fontWeight: '800', boxShadow: '0 4px 12px rgba(40,167,69,0.3)' }}><FontAwesomeIcon icon={faCheckCircle} /> FINALIZAR</button>}
+                      </div>
+                      <div style={{ display: 'flex', gap: '10px', borderTop: '2px solid rgba(0,0,0,0.05)', paddingTop: '15px' }}>
+                        <button onClick={() => handleEditar(s)} style={{ flex: 1, background: '#ffc107', border: 'none', padding: '10px', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold' }}><FontAwesomeIcon icon={faEdit} /> Editar</button>
+                        <button onClick={() => handleEliminarClick(s.id, s.mascota)} style={{ flex: 1, background: '#dc3545', color: 'white', border: 'none', padding: '10px', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold' }}><FontAwesomeIcon icon={faTrash} /> Borrar</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {turnosPasados.length === 0 && turnosHoy.length === 0 && turnosFuturos.length === 0 && (
+              <div style={{ textAlign: 'center', color: 'white', fontSize: '1.4rem', padding: '4rem 1rem', background: 'rgba(0,0,0,0.4)', borderRadius: '20px' }}>
+                No hay turnos que coincidan con la búsqueda
+              </div>
+            )}
+          </>
         )}
 
         {showModal && (

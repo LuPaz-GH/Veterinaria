@@ -1,151 +1,176 @@
-// src/pages/HomePage.jsx
 import React from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCalendarAlt, faPaw } from '@fortawesome/free-solid-svg-icons';
+import { 
+  faCalendarCheck, faWallet, faPaw, faHeart, 
+  faStethoscope, faFileMedical, faSyringe, faUsers, 
+  faClipboardList, faScissors, faShower 
+} from '@fortawesome/free-solid-svg-icons';
+import { Link } from 'react-router-dom';
 
 const HomePage = ({ user }) => {
-  const esAdmin = user?.rol === 'admin';
-  const esVeterinario = user?.rol === 'veterinario';
-  const esAdminOVet = esAdmin || esVeterinario;
-  const esPeluquero = user?.rol === 'peluquero';
+  const isVeterinario = user?.rol === 'veterinario';
+  const isRecepcionista = user?.rol === 'recepcionista';
+  const isPeluquero = user?.rol === 'peluquero';
 
-  // Configuración por rol - Ahora con fondos SEPARADOS para admin y veterinario
-  const config = esPeluquero
-    ? {
-        saludo: '¡Hola, Peluquero/a!',
-        fondoImagen:
-          'https://i.pinimg.com/1200x/f0/1a/6e/f01a6e96fee46bd114f7b2cbaf37d437.jpg', // Fondo lindo para peluquería (cambiá si querés)
-        colorCard: '#ff50f6',
-        textoPrincipal: '¡Bienvenido/a a la peluquería de Malfi!',
-      }
-    : esAdmin
-    ? {
-        saludo: '¡Hola Dueña!',
-        fondoImagen:
-          'https://i.pinimg.com/1200x/5f/72/97/5f7297fbc4c41a5a442add8e1d9514bb.jpg', // ← Golden retriever lindo (el que te gustó)
-        colorCard: '#663399',
-        textoPrincipal: '¡Bienvenido/a al panel de la dueña!',
-      }
-    : esVeterinario
-    ? {
-        saludo: '¡Hola Doc!',
-        fondoImagen:
-          'https://i.pinimg.com/1200x/6d/c4/3f/6dc43fd9935782fd4cdeacc246771397.jpg', // Fondo veterinario (perro en consulta, profesional)
-        colorCard: '#663399',
-        textoPrincipal: '¡Bienvenido/a al panel veterinario!',
-      }
-    : {
-        saludo: '¡Bienvenido/a a la recepción!',
-        fondoImagen:
-          'https://i.pinimg.com/736x/ed/80/6b/ed806bf01396dcc39b78c656eb23fc57.jpg', // Fondo recepción
-        colorCard: '#1e5128',
-        textoPrincipal: '¡Bienvenido/a a la recepción!',
-      };
+  // Lógica de temas por rol
+  let theme;
+
+  if (isVeterinario) {
+    theme = {
+      bgImage: `url('https://i.pinimg.com/1200x/99/cf/63/99cf63eb91f07a1be59bfe48c26d1c0d.jpg')`,
+      greeting: '¡Hola Doc! 🩺',
+      subGreeting: 'Listo para cuidar patitas hoy',
+      button1Text: 'Agenda de Consultas',
+      button1Icon: faCalendarCheck,
+      button1To: '/turnos',
+      button2Text: 'Historial Clínico',
+      button2Icon: faFileMedical,
+      button2To: '/historial',
+      messageTitle: 'Mensaje del día',
+      messageIcon: faStethoscope,
+      messageText: '"Cada diagnóstico preciso salva una vida. ¡Seguí cuidando con pasión y ciencia!"',
+      reminderTitle: 'Recordatorio rápido',
+      reminderIcon: faSyringe,
+      reminderText: 'Revisá el stock de vacunas, antipulgas y medicamentos antes de empezar las consultas.'
+    };
+  } else if (isRecepcionista) {
+    theme = {
+      bgImage: `url('https://i.pinimg.com/736x/5d/3e/22/5d3e224d350b39355f767713ec47e654.jpg')`,
+      greeting: '¡Hola Recepcionista! 📞',
+      subGreeting: 'Gestión y atención al cliente Malfi',
+      button1Text: 'Agenda de Turnos',
+      button1Icon: faCalendarCheck,
+      button1To: '/turnos',
+      button2Text: 'Gestión de Dueños',
+      button2Icon: faUsers,
+      button2To: '/duenos',
+      messageTitle: 'Atención al Cliente',
+      messageIcon: faClipboardList,
+      messageText: '"Una sonrisa en recepción es el primer paso para una mascota sana. ¡Buen trabajo!"',
+      reminderTitle: 'Pendientes de hoy',
+      reminderIcon: faPaw,
+      reminderText: 'No olvides confirmar los turnos de la tarde y revisar los ingresos en caja.'
+    };
+  } else if (isPeluquero) {
+    theme = {
+      // Imagen de fondo exclusiva para Estética/Peluquería
+      bgImage: `url('https://images.unsplash.com/photo-1516734212186-a967f81ad0d7?q=80&w=2071&auto=format&fit=crop')`,
+      greeting: '¡Hola Peluquero! ✂️',
+      subGreeting: 'Dejando a nuestras mascotas más lindas que nunca',
+      button1Text: 'Mis Turnos de Hoy',
+      button1Icon: faCalendarCheck,
+      button1To: '/estetica',
+      button2Text: 'Nueva Ficha Estética',
+      button2Icon: faScissors,
+      button2To: '/estetica',
+      messageTitle: 'Estilo y Cuidado',
+      messageIcon: faShower,
+      messageText: '"Un buen baño y un corte con amor hacen maravillas. ¡A brillar!"',
+      reminderTitle: 'Tip de Peluquería',
+      reminderIcon: faHeart,
+      reminderText: 'No olvides revisar si alguna mascota tiene la piel sensible antes del baño medicado.'
+    };
+  } else {
+    theme = {
+      bgImage: `url('https://i.pinimg.com/1200x/5f/72/97/5f7297fbc4c41a5a442add8e1d9514bb.jpg')`,
+      greeting: '¡Hola Dueña Vicky! 💜',
+      subGreeting: 'Bienvenida al corazón de Malfi Veterinaria 🐾',
+      button1Text: 'Agenda de Turnos',
+      button1Icon: faCalendarCheck,
+      button1To: '/turnos',
+      button2Text: 'Caja del Día',
+      button2Icon: faWallet,
+      button2To: '/caja',
+      messageTitle: 'Mensaje del día',
+      messageIcon: faHeart,
+      messageText: '"Cada patita que curamos nos llena el corazón. ¡Seguí brillando con todo el amor!"',
+      reminderTitle: 'Recordatorio rápido',
+      reminderIcon: faPaw,
+      reminderText: 'Revisá el stock de vacunas y antipulgas antes de cerrar. ¡Todo bajo control!'
+    };
+  }
 
   return (
-    <div className="flex-grow-1">
-      {/* HERO FULL SCREEN */}
-      <div
-        className="position-relative d-flex align-items-center justify-content-center"
-        style={{
-          backgroundImage: `
-            linear-gradient(
-              135deg,
-              rgba(138, 36, 121, 0.25) 0%,
-              rgba(248,241,239,0.25) 100%
-            ),
-            url('${config.fondoImagen}')
-          `,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat',
-          minHeight: '100vh',
-          width: '100%',
+    <div 
+      className="min-vh-100 d-flex align-items-center justify-content-center p-5"
+      style={{
+        backgroundImage: theme.bgImage,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed',
+        backgroundRepeat: 'no-repeat'
+      }}
+    >
+      <div 
+        className="text-center text-white p-5 rounded-5 shadow-xl"
+        style={{ 
+          backgroundColor: 'rgba(0, 0, 0, 0.40)', 
+          backdropFilter: 'blur(8px)', 
+          maxWidth: '900px',
+          border: '1px solid rgba(255,255,255,0.15)'
         }}
       >
-        {/* OVERLAY SUAVE */}
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'rgba(236, 230, 230, 0.15)',
-            zIndex: 1,
-          }}
-        />
+        <h1 className="fw-black mb-3" style={{ fontSize: '4.5rem', letterSpacing: '-1.5px', textShadow: '4px 4px 12px rgba(0,0,0,0.8)' }}>
+          {theme.greeting}
+        </h1>
+        <p className="lead fs-3 mb-5 opacity-90">
+          {theme.subGreeting}
+        </p>
 
-        {/* CONTENIDO */}
-        <div className="container-fluid py-5 position-relative" style={{ zIndex: 2 }}>
-          <div className="row justify-content-center">
-            <div className="col-12 col-lg-10 text-center text-dark">
-              <h1
-                className="display-3 fw-bold mb-3"
-                style={{ textShadow: '0 2px 8px rgba(197, 12, 188, 0.77)' }}
-              >
-                {config.saludo}
-              </h1>
+        <div className="d-flex flex-wrap justify-content-center gap-4 mb-5">
+          <Link 
+            to={theme.button1To}
+            className={`btn btn-xl px-5 py-4 rounded-pill shadow-lg fw-bold d-flex align-items-center justify-content-center ${isVeterinario ? 'btn-info text-white' : isPeluquero ? 'btn-danger text-white' : 'btn-success text-white'}`}
+            style={{ fontSize: '1.8rem', minWidth: '340px' }}
+          >
+            <FontAwesomeIcon icon={theme.button1Icon} className="me-3 fs-1" />
+            {theme.button1Text}
+          </Link>
 
-              <p className="fs-2 fw-light mb-5">
-                {config.textoPrincipal}
-              </p>
+          <Link 
+            to={theme.button2To}
+            className={`btn btn-xl px-5 py-4 rounded-pill shadow-lg fw-bold d-flex align-items-center justify-content-center ${isRecepcionista ? 'btn-warning text-dark' : isPeluquero ? 'btn-light text-danger' : 'btn-primary text-white'}`}
+            style={{ fontSize: '1.8rem', minWidth: '340px' }}
+          >
+            <FontAwesomeIcon icon={theme.button2Icon} className="me-3 fs-1" />
+            {theme.button2Text}
+          </Link>
+        </div>
 
-              <div className="row g-4 justify-content-center">
-                {/* CARD TURNOS */}
-                <div className="col-md-5 col-lg-4">
-                  <div
-                    className="card border-0 shadow-lg p-4 text-center"
-                    style={{
-                      borderRadius: '2rem',
-                      backdropFilter: 'blur(12px)',
-                      background: 'rgba(255,255,255,0.95)',
-                      border: `3px solid ${config.colorCard}`,
-                    }}
-                  >
-                    <div
-                      className="d-flex align-items-center justify-content-center gap-3 mb-3"
-                      style={{ color: config.colorCard }}
-                    >
-                      <FontAwesomeIcon icon={faCalendarAlt} size="2x" />
-                      <h4 className="fw-bold mb-0">Turnos de Hoy</h4>
-                    </div>
-                    <p
-                      className="display-4 fw-bold mb-0"
-                      style={{ color: config.colorCard }}
-                    >
-                      8
-                    </p>
-                  </div>
-                </div>
-
-                {/* CARD PACIENTES */}
-                <div className="col-md-5 col-lg-4">
-                  <div
-                    className="card border-0 shadow-lg p-4 text-center"
-                    style={{
-                      borderRadius: '2rem',
-                      backdropFilter: 'blur(12px)',
-                      background: 'rgba(255,255,255,0.95)',
-                      border: `3px solid ${config.colorCard}`,
-                    }}
-                  >
-                    <div
-                      className="d-flex align-items-center justify-content-center gap-3 mb-3"
-                      style={{ color: config.colorCard }}
-                    >
-                      <FontAwesomeIcon icon={faPaw} size="2x" />
-                      <h4 className="fw-bold mb-0">Pacientes Totales</h4>
-                    </div>
-                    <p
-                      className="display-4 fw-bold mb-0"
-                      style={{ color: config.colorCard }}
-                    >
-                      124
-                    </p>
-                  </div>
-                </div>
+        <div className="row g-4 justify-content-center">
+          <div className="col-md-6">
+            <div className="card bg-dark bg-opacity-75 text-white border-0 shadow-lg p-4 rounded-4 h-100">
+              <div className="d-flex align-items-center justify-content-center mb-3">
+                <FontAwesomeIcon icon={theme.messageIcon} size="2x" className="me-3" style={{ color: isVeterinario ? '#26C6DA' : isRecepcionista ? '#ffc107' : isPeluquero ? '#ff69b4' : '#ff4757' }} />
+                <h4 className="mb-0">{theme.messageTitle}</h4>
               </div>
+              <p className="fs-4 mb-0">{theme.messageText}</p>
+              <small className="mt-3 opacity-75">— Tu equipo Malfi</small>
+            </div>
+          </div>
+
+          <div className="col-md-6">
+            <div className="card bg-dark bg-opacity-75 text-white border-0 shadow-lg p-4 rounded-4 h-100">
+              <div className="d-flex align-items-center justify-content-center mb-3">
+                <FontAwesomeIcon icon={theme.reminderIcon} size="2x" className="me-3" style={{ color: isVeterinario ? '#06D6A0' : isRecepcionista ? '#17a2b8' : isPeluquero ? '#ffc107' : '#feca57' }} />
+                <h4 className="mb-0">{theme.reminderTitle}</h4>
+              </div>
+              <p className="fs-5 mb-0">{theme.reminderText}</p>
             </div>
           </div>
         </div>
+
+        {(isVeterinario || isRecepcionista || isPeluquero) && (
+          <div className="mt-5">
+            <Link 
+              to="/mascotas"
+              className="btn btn-outline-light btn-lg px-5 py-3 rounded-pill shadow fw-bold"
+            >
+              <FontAwesomeIcon icon={faPaw} className="me-2" />
+              {isPeluquero ? 'Lista de Clientes' : isRecepcionista ? 'Lista de Pacientes' : 'Ver Pacientes'}
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );

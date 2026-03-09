@@ -9,6 +9,7 @@ import ProductoModal from '../component/ProductoModal';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import api from '../services/api';  // ← Cambiado a api (con token)
 
 const MedicamentosPage = () => {
     const [medicamentos, setMedicamentos] = useState([]);
@@ -23,13 +24,44 @@ const MedicamentosPage = () => {
 
     const cargar = async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/productos/medicamentos');
-            const data = await res.json();
-            setMedicamentos(Array.isArray(data) ? data : []);
-        } catch (err) { console.error(err); }
+            const res = await api.get('/productos/medicamentos');
+            const data = res.data;
+            // Ordenamos por fecha de vencimiento más próxima primero
+            const sorted = Array.isArray(data) ? data.sort((a, b) => {
+                const fechaA = a.vencimiento_med ? new Date(a.vencimiento_med) : new Date('9999-12-31');
+                const fechaB = b.vencimiento_med ? new Date(b.vencimiento_med) : new Date('9999-12-31');
+                return fechaA - fechaB;
+            }) : [];
+            setMedicamentos(sorted);
+        } catch (err) { 
+            console.error("Error al cargar medicamentos:", err);
+            if (err.response?.status === 401) {
+                alert("Sesión expirada. Inicia sesión nuevamente.");
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/login';
+            }
+        }
     };
 
     useEffect(() => { cargar(); }, []);
+
+    // Función auxiliar para determinar si está próximo a vencer o vencido
+    const getVencimientoInfo = (fechaVenc) => {
+        if (!fechaVenc) return { estado: 'sin_fecha', texto: 'Sin fecha', clase: 'bg-secondary' };
+
+        const hoy = new Date();
+        const venc = new Date(fechaVenc);
+        const diasRestantes = Math.ceil((venc - hoy) / (1000 * 60 * 60 * 24));
+
+        if (diasRestantes < 0) {
+            return { estado: 'vencido', texto: 'VENCIDO', clase: 'bg-danger text-white', dias: Math.abs(diasRestantes) };
+        }
+        if (diasRestantes <= 30) {
+            return { estado: 'proximo', texto: `Próximo (${diasRestantes} días)`, clase: 'bg-warning text-dark', dias: diasRestantes };
+        }
+        return { estado: 'ok', texto: `Vence en ${diasRestantes} días`, clase: 'bg-success text-white', dias: diasRestantes };
+    };
 
     const exportarExcel = () => {
         const ws = XLSX.utils.json_to_sheet(filtrados.map(m => ({ 
@@ -70,7 +102,7 @@ const MedicamentosPage = () => {
 
     return (
         <div className="container-fluid min-vh-100 p-4 position-relative" style={{ 
-            backgroundImage: `url('https://i.pinimg.com/736x/24/04/85/24048509b8281e9319b3ce370e522a7b.jpg')`,
+            backgroundImage: `url('https://i.pinimg.com/736x/17/82/7f/17827f1bb88cd66e62c0c1d17f16d184.jpg')`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
             backgroundAttachment: 'fixed'
@@ -105,33 +137,49 @@ const MedicamentosPage = () => {
                 </div>
 
                 <div className="row g-4">
-                    {filtrados.map(m => (
-                        <div className="col-md-4 col-lg-3" key={m.id}>
-                            <div className={`card border-0 shadow-sm p-3 rounded-4 h-100 border-start border-4 border-primary transition-card`} 
-                                 style={{ 
-                                     cursor: 'pointer', 
-                                     background: 'rgba(255, 255, 255, 0.75)', 
-                                     backdropFilter: 'blur(10px)',
-                                     WebkitBackdropFilter: 'blur(10px)'
-                                 }} 
-                                 onClick={() => { setItemSeleccionado(m); setShowDetalle(true); }}>
-                                <div className="d-flex justify-content-between align-items-start mb-1">
-                                    <h6 className="fw-bold">{m.nombre}</h6>
-                                </div>
-                                <p className="text-primary fw-bold mb-1">$ {m.precio_venta}</p>
-                                <div className="d-flex justify-content-between align-items-center mt-auto">
-                                    {/* ✅ LÓGICA DE COLOR RECUPERADA AQUÍ */}
-                                    <span className={`badge ${getStockBadgeClass(m.stock)} px-3 py-2 rounded-pill`}>
-                                        {m.stock <= 0 ? 'SIN STOCK' : `Stock: ${m.stock}`}
-                                    </span>
-                                    <div className="d-flex gap-1">
-                                        <button className="btn btn-sm btn-outline-primary rounded-circle" onClick={(e) => { e.stopPropagation(); setDatosEdicion(m); setShowModal(true); }}><FontAwesomeIcon icon={faEdit} /></button>
-                                        <button className="btn btn-sm btn-outline-danger rounded-circle" onClick={(e) => { e.stopPropagation(); setIdToDelete(m.id); setShowConfirm(true); }}><FontAwesomeIcon icon={faTrash} /></button>
+                    {filtrados.map(m => {
+                        const vencInfo = getVencimientoInfo(m.vencimiento_med);
+                        let cardStyle = {};
+                        if (vencInfo.estado === 'vencido') {
+                            cardStyle.background = 'rgba(255, 99, 71, 0.25)'; // rojo suave
+                        } else if (vencInfo.estado === 'proximo') {
+                            cardStyle.background = 'rgba(255, 193, 7, 0.25)'; // amarillo/naranja suave
+                        }
+
+                        return (
+                            <div className="col-md-4 col-lg-3" key={m.id}>
+                                <div 
+                                    className={`card border-0 shadow-sm p-3 rounded-4 h-100 border-start border-4 border-primary transition-card`} 
+                                    style={{ 
+                                        cursor: 'pointer', 
+                                        ...cardStyle,
+                                        backdropFilter: 'blur(10px)',
+                                        WebkitBackdropFilter: 'blur(10px)'
+                                    }} 
+                                    onClick={() => { setItemSeleccionado(m); setShowDetalle(true); }}
+                                >
+                                    <div className="d-flex justify-content-between align-items-start mb-1">
+                                        <h6 className="fw-bold">{m.nombre}</h6>
+                                        {/* Badge de vencimiento */}
+                                        <span className={`badge ${vencInfo.clase} px-2 py-1 rounded-pill small`}>
+                                            {vencInfo.texto}
+                                        </span>
+                                    </div>
+                                    <p className="text-primary fw-bold mb-1">$ {m.precio_venta}</p>
+                                    <div className="d-flex justify-content-between align-items-center mt-auto">
+                                        {/* LÓGICA DE COLOR RECUPERADA AQUÍ */}
+                                        <span className={`badge ${getStockBadgeClass(m.stock)} px-3 py-2 rounded-pill`}>
+                                            {m.stock <= 0 ? 'SIN STOCK' : `Stock: ${m.stock}`}
+                                        </span>
+                                        <div className="d-flex gap-1">
+                                            <button className="btn btn-sm btn-outline-primary rounded-circle" onClick={(e) => { e.stopPropagation(); setDatosEdicion(m); setShowModal(true); }}><FontAwesomeIcon icon={faEdit} /></button>
+                                            <button className="btn btn-sm btn-outline-danger rounded-circle" onClick={(e) => { e.stopPropagation(); setIdToDelete(m.id); setShowConfirm(true); }}><FontAwesomeIcon icon={faTrash} /></button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
 
@@ -147,6 +195,15 @@ const MedicamentosPage = () => {
                     <ul className="list-group rounded-4 overflow-hidden border">
                         <div className="list-group-item d-flex gap-3 py-3"><FontAwesomeIcon icon={faDollarSign} className="text-success" /> <strong>Precio:</strong> ${itemSeleccionado.precio_venta}</div>
                         <div className="list-group-item d-flex gap-3 py-3"><FontAwesomeIcon icon={faBox} className="text-primary" /> <strong>Stock:</strong> {itemSeleccionado.stock} unidades</div>
+                        {itemSeleccionado.vencimiento_med && (
+                          <div className="list-group-item d-flex gap-3 py-3">
+                            <FontAwesomeIcon icon={faCalendarTimes} className="text-danger" /> 
+                            <strong>Vencimiento:</strong> {new Date(itemSeleccionado.vencimiento_med).toLocaleDateString()} 
+                            <span className={`ms-2 badge ${getVencimientoInfo(itemSeleccionado.vencimiento_med).clase}`}>
+                              {getVencimientoInfo(itemSeleccionado.vencimiento_med).texto}
+                            </span>
+                          </div>
+                        )}
                     </ul>
                     <button className="btn btn-primary w-100 rounded-pill mt-4 fw-bold" onClick={() => setShowDetalle(false)}>CERRAR</button>
                   </div>
@@ -156,10 +213,19 @@ const MedicamentosPage = () => {
 
             <ProductoModal show={showModal} onClose={() => setShowModal(false)} onGuardar={async (form) => {
                 const url = datosEdicion ? `http://localhost:3001/api/productos/${datosEdicion.id}` : 'http://localhost:3001/api/productos';
-                await fetch(url, { method: datosEdicion ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, categoria: 'medicamentos' }) });
-                setShowModal(false); cargar();
+                await api({
+                  url,
+                  method: datosEdicion ? 'PUT' : 'POST',
+                  data: { ...form, categoria: 'medicamentos' }
+                });
+                setShowModal(false); 
+                cargar();
             }} datosEdicion={datosEdicion} categoria="medicamentos" />
-            <ConfirmModal show={showConfirm} onClose={() => setShowConfirm(false)} onConfirm={async () => { await fetch(`http://localhost:3001/api/productos/${idToDelete}`, { method: 'DELETE' }); setShowConfirm(false); cargar(); }} />
+            <ConfirmModal show={showConfirm} onClose={() => setShowConfirm(false)} onConfirm={async () => { 
+                await api.delete(`/productos/${idToDelete}`); 
+                setShowConfirm(false); 
+                cargar(); 
+            }} />
         </div>
     );
 };

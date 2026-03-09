@@ -24,7 +24,10 @@ const PetshopPage = () => {
             const res = await fetch('http://localhost:3001/api/productos/petshop');
             const data = await res.json();
             setProductos(Array.isArray(data) ? data : []);
-        } catch (err) { console.error("Error al cargar:", err); }
+            console.log('[Petshop] Productos cargados:', data.length);
+        } catch (err) { 
+            console.error("Error al cargar productos:", err); 
+        }
     };
 
     useEffect(() => { cargarProductos(); }, []);
@@ -126,12 +129,63 @@ const PetshopPage = () => {
               </div>
             )}
 
-            <ProductoModal show={showModal} onClose={() => setShowModal(false)} onGuardar={async (form) => {
-                const url = datosEdicion ? `http://localhost:3001/api/productos/${datosEdicion.id}` : 'http://localhost:3001/api/productos';
-                await fetch(url, { method: datosEdicion ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, categoria: 'petshop' }) });
-                setShowModal(false); cargarProductos();
-            }} datosEdicion={datosEdicion} categoria="petshop" />
-            <ConfirmModal show={showConfirm} onClose={() => setShowConfirm(false)} onConfirm={async () => { await fetch(`http://localhost:3001/api/productos/${idToDelete}`, { method: 'DELETE' }); setShowConfirm(false); cargarProductos(); }} />
+            <ProductoModal 
+              show={showModal} 
+              onClose={() => setShowModal(false)} 
+              onGuardar={async (form) => {
+                try {
+                  const url = datosEdicion 
+                    ? `http://localhost:3001/api/productos/${datosEdicion.id}` 
+                    : 'http://localhost:3001/api/productos';
+                  
+                  const method = datosEdicion ? 'PUT' : 'POST';
+                  
+                  console.log('[Petshop] Guardando producto con:', form);
+                  
+                  const res = await fetch(url, { 
+                    method, 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ 
+                      ...form, 
+                      categoria: 'petshop'  // Aseguramos que siempre sea petshop
+                    }) 
+                  });
+
+                  if (!res.ok) {
+                    const errText = await res.text();
+                    console.error('[Petshop] Error al guardar:', errText);
+                    alert('Error al guardar: ' + errText);
+                    return;
+                  }
+
+                  console.log('[Petshop] Producto guardado OK');
+                  setShowModal(false);
+                  
+                  // Recarga inmediata + pequeño delay para que el backend procese
+                  await new Promise(r => setTimeout(r, 500));
+                  await cargarProductos();
+                } catch (err) {
+                  console.error('[Petshop] Error en onGuardar:', err);
+                  alert('Error de conexión al guardar');
+                }
+              }} 
+              datosEdicion={datosEdicion} 
+              categoria="petshop" 
+            />
+            
+            <ConfirmModal 
+              show={showConfirm} 
+              onClose={() => setShowConfirm(false)} 
+              onConfirm={async () => { 
+                try {
+                  await fetch(`http://localhost:3001/api/productos/${idToDelete}`, { method: 'DELETE' }); 
+                  setShowConfirm(false); 
+                  await cargarProductos();
+                } catch (err) {
+                  console.error('Error al eliminar:', err);
+                }
+              }} 
+            />
         </div>
     );
 };

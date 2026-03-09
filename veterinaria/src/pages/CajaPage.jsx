@@ -12,6 +12,7 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import api from '../services/api';
 
 const CajaPage = ({ user }) => {
     const [ventas, setVentas] = useState([]); 
@@ -19,11 +20,9 @@ const CajaPage = ({ user }) => {
     const [ventaSeleccionada, setVentaSeleccionada] = useState(null);
     const [datosEdicion, setDatosEdicion] = useState(null);
 
-    // Estados para el modal de ticket con estilo
     const [showTicketConfirm, setShowTicketConfirm] = useState(false);
     const [lastSaleData, setLastSaleData] = useState(null);
 
-    // Estados para el modal de confirmación de eliminación
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [ventaToDelete, setVentaToDelete] = useState(null);
 
@@ -43,12 +42,26 @@ const CajaPage = ({ user }) => {
     const wrapperRefEstetica = useRef(null);
     const wrapperRefVet = useRef(null);
 
-    const serviciosEstetica = [
-        { id: 'pelu_c', nombre: 'Baño y Corte', icon: faScissors },
-        { id: 'baño_s', nombre: 'Solo Baño', icon: faPlusCircle },
-        { id: 'uñas', nombre: 'Corte de Uñas', icon: faScissors },
-        { id: 'spa', nombre: 'Spa Relajante', icon: faStar }
+    // Lista completa sincronizada con EsteticaPage.jsx (Opción B)
+    const opcionesServiciosEstetica = [
+        "Baño y Corte Completo",
+        "Solo Baño",
+        "Corte de Uñas",
+        "Limpieza de Oídos y Glándulas",
+        "Deslanado (Shedding)",
+        "Baño Medicado / Antiparasitario",
+        "Corte de Raza (Show Grooming)",
+        "Hidratación de Manto",
+        "Recorte Sanitario",
+        "Spa Relajante"
     ];
+
+    // Convertimos a formato compatible con agregarAlCarrito
+    const serviciosEstetica = opcionesServiciosEstetica.map(nombre => ({
+        id: nombre.toLowerCase().replace(/[^a-z0-9]/gi, '_'), // id limpio y único
+        nombre,
+        icon: faScissors  // ícono por defecto (puedes cambiarlo por servicio si quieres)
+    }));
 
     const serviciosVet = [
         { id: 'cons', nombre: 'Consulta Médica', icon: faStethoscope },
@@ -70,15 +83,18 @@ const CajaPage = ({ user }) => {
 
     const cargarCaja = async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/caja');
-            const data = await res.json();
-            setVentas(Array.isArray(data) ? data : []);
-        } catch (err) { console.error("Error cargando caja:", err); }
+            const res = await api.get('/caja');
+            setVentas(Array.isArray(res.data) ? res.data : []);
+        } catch (err) {
+            console.error("Error cargando caja:", err);
+            if (err.response?.status === 401) {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/login';
+            }
+        }
     };
 
-    // ==========================================
-    // 📄 FUNCIÓN: GENERAR TICKET DE VENTA
-    // ==========================================
     const generarTicketPDF = (datosCarrito, total, metodo) => {
         const doc = new jsPDF({
             unit: 'mm',
@@ -109,35 +125,6 @@ const CajaPage = ({ user }) => {
         doc.text("TOTAL:", 5, y);
         doc.text(`$${Number(total).toLocaleString()}`, 75, y, { align: "right" });
         doc.save(`Ticket_Malfi_${Date.now()}.pdf`);
-    };
-
-    // ==========================================
-    // 💸 FUNCIÓN: GENERAR RECIBO DE SUELDO
-    // ==========================================
-    const generarReciboSueldoPDF = (datosVenta, total) => {
-        const doc = new jsPDF({ unit: 'mm', format: 'a5' });
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(16);
-        doc.text("RECIBO DE PAGO - MALFI VETERINARIA", 10, 15);
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.text(`Fecha: ${new Date().toLocaleDateString()}`, 10, 25);
-        doc.text(`Pagado por: ${user?.nombre || 'Administración'}`, 10, 30);
-        doc.line(10, 35, 140, 35);
-        doc.setFont("helvetica", "bold");
-        doc.text("CONCEPTO DEL PAGO:", 10, 45);
-        doc.setFont("helvetica", "normal");
-        const concepto = datosVenta.map(i => `- ${i.nombre} (${i.cantidad} unidad/es)`).join('\n');
-        doc.text(concepto, 10, 52);
-        doc.setFontSize(14);
-        doc.setFont("helvetica", "bold");
-        doc.text(`TOTAL PAGADO: $ ${Number(total).toLocaleString()}`, 10, 80);
-        doc.line(20, 110, 60, 110);
-        doc.setFontSize(8);
-        doc.text("Firma Empleado", 30, 115);
-        doc.line(90, 110, 130, 110);
-        doc.text("Sello Veterinaria", 100, 115);
-        doc.save(`Recibo_Sueldo_Malfi_${Date.now()}.pdf`);
     };
 
     const exportarExcel = () => {
@@ -174,8 +161,8 @@ const CajaPage = ({ user }) => {
     const confirmarEliminacion = async () => {
         if (!ventaToDelete) return;
         try {
-            const res = await fetch(`http://localhost:3001/api/caja/${ventaToDelete}`, { method: 'DELETE' });
-            if (res.ok) {
+            const res = await api.delete(`/caja/${ventaToDelete}`);
+            if (res.status === 200 || res.status === 204) {
                 cargarCaja();
             } else {
                 alert("No se pudo anular la venta");
@@ -203,16 +190,41 @@ const CajaPage = ({ user }) => {
             alert("El carrito está vacío");
             return;
         }
+
+        for (const item of carrito) {
+            if (item.producto_id && item.cantidad > item.stock_max) {
+                alert(`No hay suficiente stock de "${item.nombre}". Stock disponible: ${item.stock_max}`);
+                return;
+            }
+        }
+
+        try {
+            for (const item of carrito) {
+                if (item.producto_id) {
+                    const res = await api.put(`/productos/${item.producto_id}/stock`, { cantidad: -item.cantidad });
+                    if (res.status !== 200) {
+                        const err = res.data;
+                        throw new Error(err.detalle || 'Error al actualizar stock');
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Error al restar stock:', err);
+            setErrorStock(err.message);
+            alert(`Error al actualizar stock: ${err.message}\nLa venta NO se registró.`);
+            return;
+        }
+
         const totalActual = totalVentaCarrito;
         const itemsActuales = [...carrito];
         const metodoActual = metodoPago;
         const descripcionFinal = carrito.map(i => `${i.cantidad}x ${i.nombre} ($${i.subtotal})`).join('\n');
 
         try {
-            const res = await fetch(datosEdicion ? `http://localhost:3001/api/caja/${datosEdicion.id}` : 'http://localhost:3001/api/caja', {
+            const res = await api({
+                url: datosEdicion ? `/caja/${datosEdicion.id}` : '/caja',
                 method: datosEdicion ? 'PUT' : 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
+                data: { 
                     tipo_operacion: 'ingreso', 
                     categoria: 'Venta Múltiple', 
                     descripcion: descripcionFinal,
@@ -220,38 +232,53 @@ const CajaPage = ({ user }) => {
                     metodo_pago: metodoActual, 
                     usuario_id: user?.id,
                     detalles: itemsActuales 
-                })
+                }
             });
 
-            if (res.ok) { 
+            if (res.status === 200 || res.status === 201) { 
                 setLastSaleData({ carrito: itemsActuales, total: totalActual, metodo: metodoActual });
                 setShowModal(false); 
                 setCarrito([]); 
                 cargarCaja(); 
                 setShowTicketConfirm(true); 
+                setErrorStock(null);
+            } else {
+                throw new Error('Error al registrar la venta');
             }
         } catch (err) { 
-            alert("Error al guardar"); 
+            console.error("Error al guardar venta:", err);
+            alert("Error al guardar la venta. El stock ya fue modificado, contacta al administrador.");
         }
     };
 
     const obtenerProductos = async (termino = '') => {
         setBusquedaProd(termino);
         try {
-            const res = await fetch(`http://localhost:3001/api/productos/buscar?q=${termino}`);
-            const data = await res.json();
-            setSugerenciasProd(data);
+            const res = await api.get(`/productos/buscar?q=${encodeURIComponent(termino)}`);
+            setSugerenciasProd(Array.isArray(res.data) ? res.data : []);
             setMostrarProd(true);
-        } catch (err) { console.error(err); }
+        } catch (err) {
+            console.error('[ERROR] Falló productos:', err);
+            setSugerenciasProd([]);
+            setMostrarProd(true);
+        }
     };
 
     const agregarAlCarrito = (item, tipo = 'producto') => {
+        if (tipo === 'producto' && item.stock <= 0) {
+            alert(`El producto "${item.nombre}" no tiene stock disponible.`);
+            return;
+        }
         const idUnico = tipo !== 'producto' ? `${tipo}-${item.id}-${Date.now()}` : `prod-${item.id}`;
         const existe = carrito.find(i => i.idUnico === idUnico);
         if (existe && tipo === 'producto') {
+            const nuevaCant = existe.cantidad + 1;
+            if (nuevaCant > item.stock) {
+                alert(`No hay suficiente stock de "${item.nombre}". Máximo: ${item.stock}`);
+                return;
+            }
             actualizarCantidad(idUnico, 1);
         } else {
-            if (tipo === 'producto' && item.stock <= 0) return;
             setCarrito([...carrito, { 
                 idUnico, 
                 producto_id: tipo === 'producto' ? item.id : null, 
@@ -284,11 +311,9 @@ const CajaPage = ({ user }) => {
     };
 
     const totalVentaCarrito = carrito.reduce((acc, i) => acc + Number(i.subtotal), 0);
-
     const hoy = new Date();
     const hoyStr = `${hoy.getDate().toString().padStart(2, '0')}/${(hoy.getMonth() + 1).toString().padStart(2, '0')}/${hoy.getFullYear()}`; 
     const ventasHoy = ventas.filter(v => (v.fecha_formateada || "").split(' ')[0] === hoyStr && v.tipo_operacion === 'ingreso');
-    
     const recaudacionTotal = ventasHoy.reduce((acc, v) => acc + Number(v.monto), 0);
     const totalEfectivo = ventasHoy.filter(v => v.metodo_pago === 'efectivo').reduce((acc, v) => acc + Number(v.monto), 0);
     const totalTransferencia = ventasHoy.filter(v => v.metodo_pago === 'transferencia').reduce((acc, v) => acc + Number(v.monto), 0);
@@ -301,7 +326,6 @@ const CajaPage = ({ user }) => {
             backgroundPosition: 'center',
             backgroundAttachment: 'fixed'
         }}>
-            {/* Overlay sutil para mejorar el contraste sin tapar al gato */}
             <div style={{ position: 'absolute', inset: 0, background: 'rgba(0, 0, 0, 0.1)', zIndex: 0 }} />
 
             <div className="position-relative" style={{ zIndex: 1 }}>
@@ -310,8 +334,8 @@ const CajaPage = ({ user }) => {
                         <FontAwesomeIcon icon={faCashRegister} className="me-2"/> Caja de Malfi
                     </h1>
                     <div className="d-flex gap-2">
-                        <button className="btn btn-success rounded-pill px-3 shadow-sm" onClick={exportarExcel} title="Excel"><FontAwesomeIcon icon={faFileExcel} /></button>
-                        <button className="btn btn-danger rounded-pill px-3 shadow-sm" onClick={exportarPDF} title="PDF"><FontAwesomeIcon icon={faFilePdf} /></button>
+                        <button className="btn btn-success rounded-pill px-3 shadow-sm" onClick={exportarExcel}><FontAwesomeIcon icon={faFileExcel} /></button>
+                        <button className="btn btn-danger rounded-pill px-3 shadow-sm" onClick={exportarPDF}><FontAwesomeIcon icon={faFilePdf} /></button>
                         <button className="btn btn-nueva-mascota rounded-pill px-4 fw-bold shadow-sm" onClick={() => { setDatosEdicion(null); setCarrito([]); setShowModal(true); }}>
                             <FontAwesomeIcon icon={faPlus} className="me-2" /> Nueva Operación
                         </button>
@@ -319,7 +343,6 @@ const CajaPage = ({ user }) => {
                 </div>
 
                 <div className="row g-3 mb-4">
-                    {/* Tarjetas de resumen con Glassmorphism */}
                     {[
                         { label: 'TOTAL HOY', val: recaudacionTotal, color: 'border-primary', text: 'text-primary' },
                         { label: 'EFECTIVO', val: totalEfectivo, color: 'border-success', text: 'text-success' },
@@ -335,20 +358,19 @@ const CajaPage = ({ user }) => {
                     ))}
                 </div>
 
-                {/* Contenedor de la Tabla con Glassmorphism */}
-                <div className="card border-0 shadow-lg rounded-4 overflow-hidden" style={{ background: 'rgba(255, 255, 255, 0.7)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255, 255, 255, 0.3)' }}>
-                    <table className="table table-hover mb-0" style={{ backgroundColor: 'transparent' }}>
+                <div className="card border-0 shadow-lg rounded-4 overflow-hidden" style={{ background: 'rgba(255, 255, 255, 0.7)', backdropFilter: 'blur(12px)' }}>
+                    <table className="table table-hover mb-0">
                         <thead style={{ background: 'rgba(102, 51, 153, 0.1)' }}>
                             <tr><th className="ps-4">Fecha</th><th>Concepto</th><th>Medio</th><th className="text-end">Monto</th><th className="text-center">Acciones</th></tr>
                         </thead>
-                        <tbody style={{ backgroundColor: 'transparent' }}>
+                        <tbody>
                             {ventas.map(v => (
-                                <tr key={v.id} onClick={() => setVentaSeleccionada(v)} style={{ cursor: 'pointer', backgroundColor: 'transparent' }}>
+                                <tr key={v.id} onClick={() => setVentaSeleccionada(v)} style={{ cursor: 'pointer' }}>
                                     <td className="ps-4 small text-muted">{v.fecha_formateada}</td>
                                     <td className="fw-bold small text-truncate" style={{maxWidth: '300px'}}>{v.descripcion}</td>
                                     <td><span className="badge bg-light text-dark border">{v.metodo_pago.toUpperCase()}</span></td>
                                     <td className="text-end fw-bold text-success">$ {Number(v.monto).toLocaleString('es-AR')}</td>
-                                    <td className="text-center">
+                                    <td className="text-center" onClick={(e) => e.stopPropagation()}>
                                         <button className="btn btn-sm text-primary me-2" onClick={(e) => prepararEdicion(v, e)}><FontAwesomeIcon icon={faEdit} /></button>
                                         <button className="btn btn-sm text-danger" onClick={(e) => handleEliminar(v.id, e)}><FontAwesomeIcon icon={faTrash} /></button>
                                     </td>
@@ -359,95 +381,111 @@ const CajaPage = ({ user }) => {
                 </div>
             </div>
 
-            {/* MODALES - No se modificó la lógica, solo se asegura que el z-index sea alto para que el gato no los tape */}
-            {/* MODAL DETALLE DE VENTA */}
+            {/* MODALES */}
             {ventaSeleccionada && (
                 <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.7)', zIndex: 3000}}>
                     <div className="modal-dialog modal-dialog-centered">
                         <div className="modal-content border-0 rounded-4 shadow-lg p-4">
-                            <h4 className="fw-bold text-primary mb-3">Detalle de Operación</h4>
+                            <h4 className="fw-bold text-primary mb-3">Detalle</h4>
                             <div className="bg-light p-3 rounded-3 mb-4" style={{whiteSpace: 'pre-wrap'}}>{ventaSeleccionada.descripcion}</div>
-                            <button className="btn btn-secondary w-100 rounded-pill fw-bold" onClick={() => setVentaSeleccionada(null)}>VOLVER ATRÁS</button>
+                            <button className="btn btn-secondary w-100 rounded-pill fw-bold" onClick={() => setVentaSeleccionada(null)}>CERRAR</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* MODAL CREAR / EDITAR VENTA */}
+            {/* MODAL ARMAR VENTA - DISEÑO OPTIMIZADO */}
             {showModal && (
-                <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.6)', zIndex: 2000}}>
-                    <div className="modal-dialog modal-xl modal-dialog-centered">
-                        <div className="modal-content border-0 rounded-4 shadow-lg overflow-hidden text-dark">
-                            <button type="button" className="btn-close position-absolute top-0 end-0 m-3" style={{zIndex:3001}} onClick={() => setShowModal(false)}></button>
-                            <div className="row g-0">
-                                <div className="col-md-6 p-4 bg-white" style={{maxHeight: '85vh', overflowY: 'auto'}}>
-                                    <h4 className="fw-bold mb-4">{datosEdicion ? '📝 Editar Venta' : '🛒 Armar Venta'}</h4>
+                <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2000, backdropFilter: 'blur(4px)' }}>
+                    <div className="modal-dialog modal-lg modal-dialog-centered" style={{ maxWidth: '950px' }}>
+                        <div className="modal-content border-0 rounded-4 shadow-lg overflow-hidden text-dark" style={{ height: '85vh' }}>
+                            
+                            <div className="p-3 border-bottom d-flex justify-content-between align-items-center bg-white">
+                                <h5 className="fw-bold mb-0 text-primary">
+                                    {datosEdicion ? '📝 Editar Venta' : <><FontAwesomeIcon icon={faCartPlus} className="me-2" /> Armar Venta</>}
+                                </h5>
+                                <button type="button" className="btn-close shadow-none" onClick={() => setShowModal(false)}></button>
+                            </div>
+
+                            <div className="row g-0 h-100 overflow-hidden">
+                                <div className="col-md-7 p-4 bg-white overflow-auto h-100">
+                                    {/* BÚSQUEDA PRODUCTOS */}
                                     <div className="mb-4 position-relative" ref={wrapperRefProd}>
-                                        <label className="fw-bold small mb-2 text-primary">PRODUCTOS (STOCK)</label>
-                                        <div className="input-group shadow-sm border-primary" onClick={() => obtenerProductos(busquedaProd)}>
-                                            <span className="input-group-text bg-white border-primary text-primary"><FontAwesomeIcon icon={faBoxOpen} /></span>
-                                            <input type="text" className="form-control border-primary shadow-none" placeholder="Buscar producto..." value={busquedaProd} onChange={(e) => obtenerProductos(e.target.value)} />
+                                        <label className="fw-bold small mb-2 text-muted">PRODUCTOS EN STOCK</label>
+                                        <div className="input-group input-group-sm mb-1">
+                                            <span className="input-group-text bg-light border-end-0 text-primary"><FontAwesomeIcon icon={faSearch} /></span>
+                                            <input 
+                                                type="text" className="form-control bg-light border-start-0 shadow-none" 
+                                                placeholder="Escribe para buscar..." value={busquedaProd} 
+                                                onChange={(e) => obtenerProductos(e.target.value)}
+                                                onFocus={() => { if (busquedaProd.trim() === '') obtenerProductos(''); setMostrarProd(true); }}
+                                            />
                                         </div>
-                                        {mostrarProd && sugerenciasProd.length > 0 && (
-                                            <div className="position-absolute w-100 shadow-lg border rounded-3 bg-white overflow-auto" style={{ zIndex: 1100, maxHeight: '200px' }}>
+                                        {mostrarProd && (
+                                            <div className="position-absolute w-100 shadow-lg border-0 rounded-3 bg-white overflow-auto" style={{ zIndex: 1100, maxHeight: '250px', marginTop: '5px' }}>
                                                 {sugerenciasProd.map(p => (
-                                                    <button key={p.id} disabled={p.stock <= 0} className="list-group-item list-group-item-action d-flex justify-content-between py-2 text-start" onClick={() => agregarAlCarrito(p)}>
-                                                        <div><strong>{p.nombre}</strong><br/><small>Stock: {p.stock}</small></div>
-                                                        <span className="badge bg-success">$ {p.precio_venta}</span>
+                                                    <button key={p.id} disabled={p.stock <= 0} className={`list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2 px-3 border-0 ${p.stock <= 0 ? 'opacity-50 bg-light' : ''}`} onClick={() => { agregarAlCarrito(p); setMostrarProd(false); setBusquedaProd(''); }}>
+                                                        <div className="text-start"><div className="fw-bold small">{p.nombre}</div><small className="text-muted">Stock: {p.stock}</small></div>
+                                                        <span className="badge rounded-pill bg-primary-subtle text-primary">$ {p.precio_venta}</span>
                                                     </button>
                                                 ))}
                                             </div>
                                         )}
                                     </div>
-                                    <div className="mb-4 position-relative" ref={wrapperRefVet}>
-                                        <label className="fw-bold small mb-2 text-danger">VETERINARIA</label>
-                                        <div className="input-group shadow-sm border-danger" onClick={() => setMostrarVet(!mostrarVet)}>
-                                            <span className="input-group-text bg-white border-danger text-danger"><FontAwesomeIcon icon={faUserMd} /></span>
-                                            <input type="text" className="form-control border-danger shadow-none" placeholder="Servicios..." value={busquedaVet} onChange={(e) => setBusquedaVet(e.target.value)} />
+
+                                    {/* SERVICIOS GRID */}
+                                    <div className="row g-3">
+                                        <div className="col-6" ref={wrapperRefVet}>
+                                            <label className="fw-bold small mb-2 text-muted">VETERINARIA</label>
+                                            <button className="btn btn-outline-danger btn-sm w-100 d-flex justify-content-between align-items-center" onClick={() => setMostrarVet(!mostrarVet)}>
+                                                <span><FontAwesomeIcon icon={faUserMd} className="me-2"/> Servicios</span><FontAwesomeIcon icon={faChevronDown} />
+                                            </button>
+                                            {mostrarVet && (
+                                                <div className="position-absolute shadow-lg border rounded-3 bg-white overflow-auto" style={{ zIndex: 1100, width: '220px' }}>
+                                                    {serviciosVet.map(s => <button key={s.id} className="list-group-item list-group-item-action py-2 px-3 small border-0" onClick={() => { agregarAlCarrito(s, 'vet'); setMostrarVet(false); }}>{s.nombre}</button>)}
+                                                </div>
+                                            )}
                                         </div>
-                                        {mostrarVet && (
-                                            <div className="position-absolute w-100 shadow-lg border rounded-3 bg-white overflow-auto" style={{ zIndex: 1100 }}>
-                                                {serviciosVet.filter(s => s.nombre.toLowerCase().includes(busquedaVet.toLowerCase())).map(s => (
-                                                    <button key={s.id} className="list-group-item list-group-item-action py-3" onClick={() => agregarAlCarrito(s, 'vet')}>{s.nombre}</button>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="mb-4 position-relative" ref={wrapperRefEstetica}>
-                                        <label className="fw-bold small mb-2 text-info">ESTÉTICA</label>
-                                        <div className="input-group shadow-sm border-info" onClick={() => setMostrarEstetica(!mostrarEstetica)}>
-                                            <span className="input-group-text bg-white border-info text-info"><FontAwesomeIcon icon={faScissors} /></span>
-                                            <input type="text" className="form-control border-info shadow-none" placeholder="Peluquería..." value={busquedaEstetica} onChange={(e) => setBusquedaEstetica(e.target.value)} />
+                                        <div className="col-6" ref={wrapperRefEstetica}>
+                                            <label className="fw-bold small mb-2 text-muted">ESTÉTICA</label>
+                                            <button className="btn btn-outline-info btn-sm w-100 d-flex justify-content-between align-items-center" onClick={() => setMostrarEstetica(!mostrarEstetica)}>
+                                                <span><FontAwesomeIcon icon={faScissors} className="me-2"/> Peluquería</span><FontAwesomeIcon icon={faChevronDown} />
+                                            </button>
+                                            {mostrarEstetica && (
+                                                <div className="position-absolute shadow-lg border rounded-3 bg-white overflow-auto" style={{ zIndex: 1100, width: '220px' }}>
+                                                    {serviciosEstetica.map(s => <button key={s.id} className="list-group-item list-group-item-action py-2 px-3 small border-0" onClick={() => { agregarAlCarrito(s, 'estetica'); setMostrarEstetica(false); }}>{s.nombre}</button>)}
+                                                </div>
+                                            )}
                                         </div>
-                                        {mostrarEstetica && (
-                                            <div className="position-absolute w-100 shadow-lg border rounded-3 bg-white overflow-auto" style={{ zIndex: 1100 }}>
-                                                {serviciosEstetica.filter(s => s.nombre.toLowerCase().includes(busquedaEstetica.toLowerCase())).map(s => (
-                                                    <button key={s.id} className="list-group-item list-group-item-action py-3" onClick={() => agregarAlCarrito(s, 'estetica')}>{s.nombre}</button>
-                                                ))}
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
-                                <div className="col-md-6 p-4 bg-light border-start">
-                                    <h5 className="fw-bold mb-3 border-bottom pb-2">Resumen y Pago</h5>
-                                    <div className="overflow-auto" style={{maxHeight: '320px'}}>
+
+                                <div className="col-md-5 p-4 bg-light h-100 d-flex flex-column border-start">
+                                    <h6 className="fw-bold mb-3 border-bottom pb-2">Resumen de Pago</h6>
+                                    <div className="flex-grow-1 overflow-auto mb-3">
                                         {carrito.map(item => (
-                                            <div key={item.idUnico} className="d-flex justify-content-between align-items-center border-bottom py-2">
-                                                <div className="small fw-bold" style={{width: '120px'}}>{item.nombre}</div>
-                                                <div className="d-flex align-items-center">
-                                                    <button type="button" className="btn btn-link text-danger p-0 shadow-none" onClick={() => actualizarCantidad(item.idUnico, -1)}><FontAwesomeIcon icon={faMinusCircle}/></button>
-                                                    <span className="mx-2 fw-bold">{item.cantidad}</span>
-                                                    <button type="button" className="btn btn-link text-success p-0 shadow-none" onClick={() => actualizarCantidad(item.idUnico, 1)}><FontAwesomeIcon icon={faPlusCircle}/></button>
+                                            <div key={item.idUnico} className="card border-0 shadow-sm mb-2 p-2 rounded-3">
+                                                <div className="d-flex justify-content-between align-items-center">
+                                                    <div style={{ flex: 1 }}>
+                                                        <div className="fw-bold small text-truncate" style={{ maxWidth: '120px' }}>{item.nombre}</div>
+                                                        {item.manual ? <input type="number" className="form-control form-control-sm border-0 bg-light p-1 mt-1" style={{ width: '80px', fontSize: '11px' }} onChange={(e) => cambiarPrecioManual(item.idUnico, e.target.value)} /> : <div className="text-muted" style={{fontSize: '10px'}}>$ {item.precio} c/u</div>}
+                                                    </div>
+                                                    <div className="d-flex align-items-center gap-1">
+                                                        <button className="btn btn-sm btn-light p-1" onClick={() => actualizarCantidad(item.idUnico, -1)}><FontAwesomeIcon icon={faMinusCircle}/></button>
+                                                        <span className="fw-bold small mx-1">{item.cantidad}</span>
+                                                        <button className="btn btn-sm btn-light p-1" onClick={() => actualizarCantidad(item.idUnico, 1)}><FontAwesomeIcon icon={faPlusCircle}/></button>
+                                                        <button className="btn btn-sm text-danger" onClick={() => setCarrito(carrito.filter(i => i.idUnico !== item.idUnico))}><FontAwesomeIcon icon={faTrash}/></button>
+                                                    </div>
                                                 </div>
-                                                {item.manual ? <input type="number" className="form-control form-control-sm text-end" style={{width: '80px'}} value={item.precio || ''} onChange={(e) => cambiarPrecioManual(item.idUnico, e.target.value)} placeholder="$ 0" /> : <span className="fw-bold text-success">$ {Number(item.subtotal).toLocaleString()}</span>}
-                                                <button className="btn btn-sm text-muted" onClick={() => setCarrito(carrito.filter(i => i.idUnico !== item.idUnico))}><FontAwesomeIcon icon={faTrash} /></button>
                                             </div>
                                         ))}
                                     </div>
-                                    <div className="mt-4 p-4 bg-white rounded-4 shadow-sm border-top border-5 border-primary">
-                                        <div className="d-flex justify-content-between align-items-center mb-3"><span className="fw-bold text-muted small">TOTAL:</span><h2 className="fw-bold text-primary mb-0">$ {Number(totalVentaCarrito).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h2></div>
-                                        <select className="form-select mb-4 rounded-pill shadow-sm" value={metodoPago} onChange={e => setMetodoPago(e.target.value)}><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="tarjeta">Tarjeta</option></select>
-                                        <div className="d-flex gap-2"><button className="btn btn-light rounded-pill flex-grow-1 border fw-bold" onClick={() => setShowModal(false)}><FontAwesomeIcon icon={faArrowLeft} /> VOLVER</button><button className="btn btn-success rounded-pill flex-grow-1 fw-bold shadow py-2" onClick={handleGuardar}>{datosEdicion ? 'GUARDAR' : 'COBRAR'}</button></div>
+                                    <div className="bg-white p-3 rounded-4 shadow-sm">
+                                        <div className="d-flex justify-content-between mb-3"><span className="fw-bold text-muted small">TOTAL:</span><h4 className="fw-bold text-primary mb-0">$ {totalVentaCarrito.toLocaleString('es-AR')}</h4></div>
+                                        <select className="form-select form-select-sm mb-3 rounded-pill" value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)}>
+                                            <option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="tarjeta">Tarjeta</option>
+                                        </select>
+                                        <button className="btn btn-success w-100 rounded-pill py-2 fw-bold shadow-sm" disabled={carrito.length === 0} onClick={handleGuardar}>COBRAR</button>
                                     </div>
                                 </div>
                             </div>
@@ -456,41 +494,31 @@ const CajaPage = ({ user }) => {
                 </div>
             )}
 
-            {/* MODAL DE ÉXITO ESTÉTICO (RECIBO Y TICKET) */}
             {showTicketConfirm && (
-                <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 5000 }}>
+                <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.8)', zIndex: 4000}}>
                     <div className="modal-dialog modal-dialog-centered">
-                        <div className="modal-content border-0 rounded-5 shadow-lg overflow-hidden">
-                            <div className="p-5 text-center bg-white">
-                                <div className="mb-4">
-                                    <div className="bg-success bg-opacity-10 rounded-circle d-inline-flex p-4 mb-3">
-                                        <FontAwesomeIcon icon={faCheckCircle} size="4x" className="text-success" />
-                                    </div>
-                                    <h2 className="fw-bold" style={{ color: '#663399' }}>¡Venta Exitosa!</h2>
-                                    <p className="text-muted fs-5">La operación se registró correctamente.</p>
-                                </div>
-                                <div className="bg-light p-4 rounded-4 mb-4 border border-dashed" style={{ borderStyle: 'dashed' }}>
-                                    <p className="mb-1 fw-bold text-muted small text-uppercase">Monto de la Operación</p>
-                                    <h1 className="fw-black text-primary mb-0">$ {lastSaleData?.total.toLocaleString('es-AR')}</h1>
-                                </div>
-                                <div className="d-grid gap-3">
-                                    <button className="btn btn-primary btn-lg rounded-pill fw-bold shadow py-3" style={{ backgroundColor: '#663399', border: 'none' }} onClick={() => { generarTicketPDF(lastSaleData.carrito, lastSaleData.total, lastSaleData.metodo); setShowTicketConfirm(false); }}><FontAwesomeIcon icon={faPrint} className="me-2" /> GENERAR TICKET CLIENTE</button>
-                                    <button className="btn btn-info btn-lg rounded-pill fw-bold shadow py-3 text-white" onClick={() => { generarReciboSueldoPDF(lastSaleData.carrito, lastSaleData.total); setShowTicketConfirm(false); }}><FontAwesomeIcon icon={faSignature} className="me-2" /> RECIBO DE PAGO (PERSONAL)</button>
-                                    <button className="btn btn-link text-muted fw-bold text-decoration-none" onClick={() => setShowTicketConfirm(false)}>Cerrar sin imprimir</button>
-                                </div>
+                        <div className="modal-content border-0 rounded-4 p-4 text-center">
+                            <FontAwesomeIcon icon={faCheckCircle} className="text-success mb-3" size="4x" />
+                            <h3 className="fw-bold mb-4">Venta Registrada</h3>
+                            <div className="d-flex gap-2">
+                                <button className="btn btn-primary w-100 rounded-pill fw-bold" onClick={() => { generarTicketPDF(lastSaleData.carrito, lastSaleData.total, lastSaleData.metodo); setShowTicketConfirm(false); }}>IMPRIMIR TICKET</button>
+                                <button className="btn btn-outline-secondary w-100 rounded-pill fw-bold" onClick={() => setShowTicketConfirm(false)}>CERRAR</button>
                             </div>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* MODAL DE CONFIRMACIÓN DE ANULACIÓN */}
             {showDeleteConfirm && (
-                <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.65)', zIndex: 4000 }} onClick={() => setShowDeleteConfirm(false)}>
-                    <div className="modal-dialog modal-dialog-centered modal-md" onClick={e => e.stopPropagation()}>
-                        <div className="modal-content border-0 rounded-4 shadow-lg">
-                            <div className="modal-header border-0 pt-4 pb-2 px-4 d-flex justify-content-between align-items-center"><h5 className="modal-title fw-bold text-dark">Confirmar acción</h5><button type="button" className="btn-close" onClick={() => setShowDeleteConfirm(false)}></button></div>
-                            <div className="modal-body text-center px-5 py-4"><p className="lead fw-bold mb-2">¿Estás seguro?</p><p className="text-danger fw-medium small mb-4">Anular venta • Esta acción no se puede deshacer</p><div className="d-grid gap-3 d-sm-flex justify-content-sm-center"><button className="btn btn-outline-secondary btn-lg rounded-pill px-5 fw-bold" onClick={() => setShowDeleteConfirm(false)}>Cancelar</button><button className="btn btn-danger btn-lg rounded-pill px-5 fw-bold shadow" onClick={confirmarEliminacion}>Confirmar</button></div></div>
+                <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.7)', zIndex: 3500}}>
+                    <div className="modal-dialog modal-dialog-centered modal-sm">
+                        <div className="modal-content border-0 rounded-4 p-4 text-center">
+                            <FontAwesomeIcon icon={faExclamationCircle} className="text-danger mb-3" size="3x" />
+                            <p className="fw-bold">¿Anular esta operación?</p>
+                            <div className="d-flex gap-2">
+                                <button className="btn btn-danger w-100 rounded-pill" onClick={confirmarEliminacion}>SÍ, ANULAR</button>
+                                <button className="btn btn-light w-100 rounded-pill" onClick={() => setShowDeleteConfirm(false)}>NO</button>
+                            </div>
                         </div>
                     </div>
                 </div>

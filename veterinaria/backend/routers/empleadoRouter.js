@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
+const bcrypt = require('bcrypt'); // ← NUEVO: para hashear contraseñas
+
+const SALT_ROUNDS = 10; // Puedes subirlo a 12 o 14 en producción
 
 // GET - Listar empleados activos
 router.get('/', async (req, res) => {
@@ -15,7 +18,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST - Crear nuevo empleado (CORREGIDO)
+// POST - Crear nuevo empleado (CORREGIDO + CONTRASEÑA HASHEADA)
 router.post('/', async (req, res) => {
   const { nombre, usuario, password, rol } = req.body;
 
@@ -36,10 +39,13 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'El nombre de usuario ya está en uso' });
     }
 
-    // 2. Insertar en la base de datos (Usando la columna 'password' que vimos en tu imagen)
+    // 2. Hashear la contraseña antes de guardarla
+    const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+
+    // 3. Insertar en la base de datos (ahora con contraseña hasheada)
     const [result] = await pool.query(
       'INSERT INTO empleados (nombre, usuario, password, rol, activo) VALUES (?, ?, ?, ?, 1)',
-      [nombre, usuario, password, rol]
+      [nombre, usuario, hashedPassword, rol]
     );
 
     res.status(201).json({
@@ -48,6 +54,7 @@ router.post('/', async (req, res) => {
       usuario,
       rol,
       activo: 1
+      // Nota: NO devolvemos la contraseña ni el hash por seguridad
     });
   } catch (err) {
     console.error('Error en el INSERT:', err);
@@ -55,7 +62,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT - Actualizar empleado
+// PUT - Actualizar empleado (ahora también hashea si viene nueva contraseña)
 router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const { nombre, usuario, password, rol } = req.body;
@@ -70,7 +77,11 @@ router.put('/:id', async (req, res) => {
     const params = [];
     const updates = [];
 
-    if (nombre) { updates.push('nombre = ?'); params.push(nombre); }
+    if (nombre) { 
+      updates.push('nombre = ?'); 
+      params.push(nombre); 
+    }
+
     if (usuario) {
       const [duplicado] = await pool.query(
         'SELECT id FROM empleados WHERE usuario = ? AND id != ?',
@@ -79,10 +90,21 @@ router.put('/:id', async (req, res) => {
       if (duplicado.length > 0) {
         return res.status(400).json({ error: 'Usuario ya en uso' });
       }
-      updates.push('usuario = ?'); params.push(usuario);
+      updates.push('usuario = ?'); 
+      params.push(usuario);
     }
-    if (password) { updates.push('password = ?'); params.push(password); }
-    if (rol) { updates.push('rol = ?'); params.push(rol); }
+
+    // Si viene contraseña nueva → hashearla
+    if (password) { 
+      const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+      updates.push('password = ?'); 
+      params.push(hashedPassword);
+    }
+
+    if (rol) { 
+      updates.push('rol = ?'); 
+      params.push(rol); 
+    }
 
     if (updates.length === 0) return res.status(400).json({ error: 'Sin cambios' });
 
@@ -97,7 +119,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE - Borrado lógico
+// DELETE - Borrado lógico (sin cambios)
 router.delete('/:id', async (req, res) => {
   const { id } = req.params;
   try {

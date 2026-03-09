@@ -11,7 +11,6 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import DueñoModal from '../component/DueñoModal';
 import ConfirmModal from '../component/ConfirmModal';
-// Librerías para exportar
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -84,7 +83,7 @@ const DueñosPage = () => {
         body: tableRows,
         startY: 35,
         theme: 'grid',
-        headStyles: { fillColor: [102, 51, 153] }, // Morado Malfi
+        headStyles: { fillColor: [102, 51, 153] }, 
         styles: { fontSize: 10 },
       });
 
@@ -165,9 +164,8 @@ const DueñosPage = () => {
         backgroundAttachment: 'fixed',
       }}
     >
-      {/* Overlay sutil para ver mejor la imagen de fondo */}
-      <div style={{ position: 'absolute', inset: 0, background: 'rgba(30, 81, 40, 0.4)', zIndex: 1 }} />
-
+      {}
+      
       <div className="position-relative" style={{ zIndex: 2 }}>
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <h1 className="fw-bold text-white" style={{ textShadow: '2px 2px 8px rgba(0,0,0,0.8)' }}>
