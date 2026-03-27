@@ -6,6 +6,7 @@ import {
   faCut, faArrowLeft, faUser, faLock, faCheckCircle 
 } from '@fortawesome/free-solid-svg-icons';
 import { faWhatsapp } from '@fortawesome/free-brands-svg-icons';
+import api from '../services/api'; // ✅ IMPORTAR api para usar el interceptor
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -39,18 +40,15 @@ const LoginPage = () => {
         return;
       }
 
-      const response = await fetch('http://localhost:3001/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          usuario: credenciales.usuario,
-          password: credenciales.clave 
-        })
+      // ✅ USAR api.post() en lugar de fetch para consistencia
+      const response = await api.post('/login', {
+        usuario: credenciales.usuario,
+        password: credenciales.clave 
       });
 
-      const data = await response.json();
+      const data = response.data;
 
-      if (!response.ok || !data.success) {
+      if (!response.status === 200 || !data.success) {
         setError(data.message || 'Usuario o contraseña incorrectos');
         setLoading(false);
         return;
@@ -62,23 +60,31 @@ const LoginPage = () => {
         return;
       }
 
-      localStorage.setItem('token', data.token);
+      // ✅ Guardar token y usuario LIMPIOS
+      const tokenLimpio = data.token?.trim();
+      localStorage.setItem('token', tokenLimpio);
       localStorage.setItem('user', JSON.stringify(data.user));
+      
+      // 🔍 Verificación de debug
+      console.log('✅ [Login] Token guardado:', tokenLimpio ? 'Sí' : 'No');
+      console.log('✅ [Login] User guardado:', data.user);
 
-      if (data.user.rol === 'admin') {
-        navigate('/home');
-      } else if (data.user.rol === 'veterinario') {
-        navigate('/home'); 
-      } else if (data.user.rol === 'peluquero') {
-        navigate('/home');
-      } else {
-        navigate('/home');
-      }
-
-      window.location.reload();
+      // Navegar según rol
+      navigate('/home');
+      
+      // ✅ Eliminar window.location.reload() para evitar race conditions
+      // El useEffect de Sidebar/AppContent se encargará de actualizar el estado
 
     } catch (err) {
-      setError('No se pudo conectar al servidor.');
+      console.error('❌ [Login] Error:', err);
+      
+      if (err.response?.status === 401) {
+        setError('Usuario o contraseña incorrectos');
+      } else if (err.response?.status === 400) {
+        setError('Datos incompletos');
+      } else {
+        setError('No se pudo conectar al servidor. Verifica que el backend esté corriendo.');
+      }
     } finally {
       setLoading(false);
     }
@@ -91,21 +97,19 @@ const LoginPage = () => {
     setError('');
 
     try {
-      const response = await fetch('http://localhost:3001/api/recuperacion/forgot-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: recuperacionForm.email.trim() })
+      const response = await api.post('/recuperacion/forgot-password', {
+        email: recuperacionForm.email.trim()
       });
 
-      const data = await response.json();
+      const data = response.data;
 
-      if (response.ok) {
+      if (response.status === 200) {
         setRecuperacionEnviada(true);
       } else {
-        // Mostramos el error que viene del backend si el email no existe
         alert(data.message || 'No se pudo enviar el email de recuperación. Verifica el correo ingresado.');
       }
     } catch (err) {
+      console.error('❌ [Recuperación Admin] Error:', err);
       alert('Error de conexión con el servidor de correos.');
     } finally {
       setEnviandoRecuperacion(false);
@@ -123,20 +127,16 @@ const LoginPage = () => {
         mensaje: `Solicitud de recuperación.\nUsuario intentado: ${credenciales.usuario || '(no ingresado)'}\nRol: ${rolSeleccionado?.nombre || 'No seleccionado'}`
       };
 
-      const response = await fetch('http://localhost:3001/api/recuperacion', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      const response = await api.post('/recuperacion', payload);
+      const result = response.data;
 
-      const result = await response.json();
-
-      if (response.ok && result.success) {
+      if (response.status === 200 && result.success) {
         setRecuperacionEnviada(true);
       } else {
         alert(result.message || 'No se pudo enviar la solicitud');
       }
     } catch (err) {
+      console.error('❌ [Recuperación Empleado] Error:', err);
       alert('Error al conectar. Intenta WhatsApp.');
     } finally {
       setEnviandoRecuperacion(false);

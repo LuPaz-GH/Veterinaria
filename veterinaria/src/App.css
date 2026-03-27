@@ -1,15 +1,18 @@
 /* src/App.css */
 
-/* Reset básico + full width */
+/* ────────────────────────────────────────────────
+   RESET BÁSICO + ESTRUCTURA GLOBAL
+───────────────────────────────────────────────── */
 html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
   width: 100%;
   overflow-x: hidden;
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* Evitamos que Bootstrap limite demasiado el ancho */
+/* Contenedores flexibles para evitar cortes de diseño */
 .container-fluid {
   padding-left: 1.5rem;
   padding-right: 1.5rem;
@@ -22,63 +25,101 @@ html, body, #root {
 }
 
 /* ────────────────────────────────────────────────
-   EFECTO HOVER EN CARDS (estilo general)
+   TARJETAS PREMIUM (Glassmorphism & Legibilidad)
 ───────────────────────────────────────────────── */
 .card {
   transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-  border: 1px solid rgba(0,0,0,0.05);
-  background-color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background-color: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border-radius: 1.5rem !important;
 }
 
-.card:hover {
-  transform: translateY(-8px);
-  background-color: #f3e5f5 !important;
-  box-shadow: 0 15px 30px rgba(102, 51, 153, 0.3) !important;
-  border: 1px solid #663399 !important;
-  cursor: pointer;
+/* Estilo específico para las tarjetas de Clientes */
+.card-cliente-premium {
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  background: rgba(255, 255, 255, 0.15) !important;
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+  border-radius: 2rem !important;
+  overflow: hidden;
 }
 
-.card:hover h5,
-.card:hover h6,
-.card:hover .fw-bold {
-  color: #663399 !important;
+/* Encabezado sólido dentro de tarjetas transparentes para legibilidad */
+.header-cliente-solid {
+  background: rgba(255, 255, 255, 0.85) !important;
+  padding: 1.5rem;
+  border-bottom: 1px solid rgba(0,0,0,0.05);
+}
+
+.transition-card {
+  transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+}
+
+.transition-card:hover {
+  transform: translateY(-10px) scale(1.02);
+  background-color: rgba(255, 255, 255, 0.25) !important;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3) !important;
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  cursor: pointer;
 }
 
 /* ────────────────────────────────────────────────
    BOTONES ESPECIALES
 ───────────────────────────────────────────────── */
-.btn-nueva-mascota {
-  background-color: #ff9800 !important;
+
+/* Botón Nuevo Cliente (Malfi Pink) */
+.btn-vibrante {
+  background: linear-gradient(45deg, #ff69b4, #ff1493) !important;
   color: white !important;
   border: none !important;
-  transition: all 0.3s ease !important;
+  padding: 12px 28px !important;
+  border-radius: 50px !important;
+  font-weight: bold !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+  box-shadow: 0 6px 20px rgba(255, 20, 147, 0.4) !important;
   text-transform: uppercase;
+  font-size: 0.9rem;
   letter-spacing: 1px;
 }
 
-.btn-nueva-mascota:hover {
-  background-color: #f57c00 !important;
-  transform: translateY(-2px);
-  box-shadow: 0 5px 15px rgba(255, 152, 0, 0.4) !important;
-}
-
-.btn-vibrante {
-  background: linear-gradient(45deg, #ff4e50, #f9d423) !important;
-  color: white !important;
-  border: none !important;
-  transition: all 0.3s ease !important;
-  box-shadow: 0 4px 15px rgba(255, 78, 80, 0.4) !important;
-}
-
 .btn-vibrante:hover {
-  transform: scale(1.05) translateY(-2px);
-  box-shadow: 0 6px 20px rgba(255, 78, 80, 0.6) !important;
+  transform: translateY(-3px) scale(1.03);
+  box-shadow: 0 10px 25px rgba(255, 20, 147, 0.6) !important;
   filter: brightness(1.1);
 }
 
+.btn-vibrante:active {
+  transform: scale(0.95);
+}
+
+/* Botón Nueva Mascota (Malfi Orange) */
+.btn-nueva-mascota {
+  background: linear-gradient(45deg, #ff9800, #f57c00) !important;
+  color: white !important;
+  border: none !important;
+  padding: 10px 24px !important;
+  border-radius: 50px !important;
+  transition: all 0.3s ease !important;
+  text-transform: uppercase;
+  font-weight: bold !important;
+  letter-spacing: 1px;
+  box-shadow: 0 4px 15px rgba(255, 152, 0, 0.3) !important;
+}
+
+.btn-nueva-mascota:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(255, 152, 0, 0.5) !important;
+}
+
+/* Botón Volver */
 .btn-volver-vibrante {
-  background: linear-gradient(45deg, #ff9800, #ff5722) !important;
+  background: linear-gradient(45deg, #6a11cb, #2575fc) !important;
   color: white !important;
   border: none !important;
   padding: 12px 28px !important;
@@ -88,134 +129,116 @@ html, body, #root {
   align-items: center;
   gap: 12px;
   transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
-  box-shadow: 0 4px 15px rgba(255, 87, 34, 0.4) !important;
-  text-transform: uppercase;
-  font-size: 0.85rem;
-  letter-spacing: 1px;
+  box-shadow: 0 4px 15px rgba(106, 17, 203, 0.4) !important;
 }
 
 .btn-volver-vibrante:hover {
   transform: translateX(-8px);
-  box-shadow: 0 6px 20px rgba(255, 87, 34, 0.6) !important;
-  filter: brightness(1.1);
-}
-
-.btn-volver-vibrante:active {
-  transform: scale(0.95);
+  box-shadow: 0 6px 20px rgba(106, 17, 203, 0.6) !important;
 }
 
 /* ────────────────────────────────────────────────
-   AUXILIARES GENERALES
+   MODALES PREMIUM
 ───────────────────────────────────────────────── */
-.x-small {
-  font-size: 0.65rem;
-  padding: 2px 6px;
-  border-radius: 10px;
-  font-weight: bold;
-  text-transform: uppercase;
-}
-
-.input-group.rounded-pill {
-  border: 1px solid rgba(102, 51, 153, 0.1);
-}
-
-.input-group.rounded-pill:focus-within {
-  border-color: #663399;
-  box-shadow: 0 0 0 0.2rem rgba(102, 51, 153, 0.15);
-}
-
-.transition-card {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.transition-card:hover {
-  transform: scale(1.02);
-  box-shadow: 0 10px 20px rgba(0,0,0,0.1) !important;
-}
-
 .modal-content {
-  animation: fadeIn 0.3s ease-out;
+  border-radius: 2.5rem !important;
+  border: none !important;
+  overflow: hidden;
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4) !important;
+  animation: modalScaleUp 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-20px); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes modalScaleUp {
+  0% { transform: scale(0.8); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.modal-header {
+  border-bottom: 1px solid rgba(0,0,0,0.05) !important;
+  padding: 1.5rem 2rem !important;
+}
+
+.modal-body {
+  padding: 2rem !important;
+}
+
+/* Form inputs optimizados */
+.form-control, .form-select {
+  border-radius: 0.8rem !important;
+  padding: 12px 15px !important;
+  border: 1px solid rgba(0,0,0,0.1) !important;
+  transition: all 0.2s ease;
+}
+
+.form-control:focus {
+  border-color: #6a11cb !important;
+  box-shadow: 0 0 0 0.25rem rgba(106, 17, 203, 0.15) !important;
 }
 
 /* ────────────────────────────────────────────────
-   DUEÑO DASHBOARD – ESTILOS ESPECÍFICOS
+   DASHBOARD Y RECHARTS
 ───────────────────────────────────────────────── */
 .dashboard-card {
   transition: all 0.4s ease;
   min-height: 420px;
-  border-radius: 20px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(15px);
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
 }
 
 .dashboard-card:hover {
-  transform: translateY(-6px);
-  box-shadow: 0 15px 40px rgba(0,0,0,0.35) !important;
-  background: rgba(255,255,255,0.16) !important;
+  transform: translateY(-8px);
+  box-shadow: 0 20px 45px rgba(0,0,0,0.4) !important;
 }
 
-/* Protección de color de texto en hover y en gráficos */
-.dashboard-card h1,
-.dashboard-card h2,
-.dashboard-card h3,
-.dashboard-card h4,
-.dashboard-card h5,
-.dashboard-card .fw-bold,
-.dashboard-card .text-white,
-.dashboard-card small {
-  color: white !important;
-  text-shadow: 1px 1px 6px rgba(0,0,0,0.7) !important;
-}
-
-/* Recharts – forzar visibilidad */
-.recharts-text,
-.recharts-legend-item-text,
-.recharts-cartesian-axis-tick-value,
-.recharts-label {
-  fill: white !important;
-  font-weight: 600 !important;
-  font-size: 13px !important;
+.recharts-text {
+  fill: #ffffff !important;
+  font-weight: 500;
 }
 
 .recharts-default-tooltip {
-  background: rgba(0,0,0,0.85) !important;
-  border: 1px solid rgba(255,255,255,0.25) !important;
-  color: white !important;
-  border-radius: 10px;
-  box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+  background: rgba(0, 0, 0, 0.85) !important;
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: 10px !important;
+  color: #fff !important;
 }
 
-/* Contenedor FORZADO para Recharts (soluciona width/height -1) */
-.graph-wrapper {
-  width: 100%;
-  height: 380px;              /* altura FIJA obligatoria */
-  min-height: 380px;
-  position: relative;
+/* ────────────────────────────────────────────────
+   AUXILIARES
+───────────────────────────────────────────────── */
+.badge-paciente {
+  background: #00d2ff !important;
+  color: #000 !important;
+  font-weight: 800 !important;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  padding: 8px 15px !important;
+  border-radius: 50px !important;
+  box-shadow: 0 2px 8px rgba(0, 210, 255, 0.3);
 }
 
-/* Corrección técnica para contenedores responsivos de Recharts */
-.recharts-responsive-container {
-  min-width: 0;
-  min-height: 380px !important; /* Asegura que el gráfico tenga espacio para dibujarse */
+.backdrop-blur {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
-.graph-wrapper > div {
-  width: 100% !important;
-  height: 100% !important;
+.shadow-xl { box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3) !important; }
+.shadow-2xl { box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5) !important; }
+
+.x-small {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.5px;
 }
 
-/* Mensaje cuando no hay datos */
-.graph-empty {
-  height: 380px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  opacity: 0.7;
-  font-size: 1.1rem;
-  text-align: center;
-  padding: 20px;
+/* Spinner Animación */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.fa-spin-custom {
+  animation: spin 1s linear infinite;
 }

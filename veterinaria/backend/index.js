@@ -30,6 +30,7 @@ const duenoRouter = require('./routers/duenoRouter');
 const productoRouter = require('./routers/productoRouter'); 
 const operacionRouter = require('./routers/operacionRouter'); 
 const recuperacionRouter = require('./routers/recuperacionRouter');
+const auditoriaRouter = require('./routers/auditoriaRouter'); // ✅ AGREGADO: Router de auditoría unificada
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -37,13 +38,13 @@ const port = process.env.PORT || 3001;
 // Middlewares
 app.use(cors({ 
     origin: ['http://localhost:5173', 'http://localhost:5175'],
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization']
 })); 
 
 app.use(express.json());
 
-// Ruta de login (pública - maneja texto plano Y bcrypt)
+// ✅ RUTA DE LOGIN - PÚBLICA (maneja texto plano Y bcrypt)
 app.post('/api/login', async (req, res) => {
   const { usuario, password } = req.body;
 
@@ -104,6 +105,7 @@ app.use('/api/empleados', empleadoRouter);
 app.use('/api/duenos', duenoRouter);
 app.use('/api/productos', productoRouter);
 app.use('/api/recuperacion', recuperacionRouter);
+app.use('/api/auditoria', auditoriaRouter); // ✅ AGREGADO: Ruta de auditoría unificada (pública para historial)
 
 // Rutas protegidas
 app.use('/api', authMiddleware, operacionRouter);
@@ -118,6 +120,7 @@ app.listen(port, () => {
   console.log(`🚀 Servidor Malfi corriendo en http://localhost:${port}`);
   console.log(`✅ Permitiendo CORS para puertos 5173 y 5175`);
   console.log('Login mixto: soporta texto plano + bcrypt');
+  console.log('✅ Auditoría unificada: Productos + Estética');
   console.log('==============================================');
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {

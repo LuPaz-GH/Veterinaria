@@ -81,13 +81,30 @@ router.post('/', async (req, res) => {
 // =====================================================
 router.get('/', async (req, res) => {
   try {
+    // Verificamos si la tabla existe antes de consultar
+    const [tableCheck] = await pool.query(
+      `SELECT COUNT(*) as existe 
+       FROM information_schema.tables 
+       WHERE table_schema = 'malfi_vet' 
+       AND table_name = 'solicitudes_recuperacion'`
+    );
+
+    if (tableCheck[0].existe === 0) {
+      console.warn('⚠️ Tabla solicitudes_recuperacion no existe aún');
+      return res.json([]); // Devolvemos array vacío en vez de romper
+    }
+
     const [rows] = await pool.query(
       'SELECT id, nombre, email, mensaje, fecha, estado FROM solicitudes_recuperacion ORDER BY fecha DESC'
     );
     res.json(rows);
   } catch (error) {
     console.error('Error al listar solicitudes:', error);
-    res.status(500).json({ success: false, message: 'Error al cargar solicitudes' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error al cargar solicitudes',
+      detalle: error.message 
+    });
   }
 });
 

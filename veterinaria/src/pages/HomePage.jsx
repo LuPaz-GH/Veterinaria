@@ -6,13 +6,13 @@ import {
   faClipboardList, faScissors, faShower 
 } from '@fortawesome/free-solid-svg-icons';
 import { Link } from 'react-router-dom';
+import DueñoDashboard from './DueñoDashboard'; 
 
 const HomePage = ({ user }) => {
   const isVeterinario = user?.rol === 'veterinario';
   const isRecepcionista = user?.rol === 'recepcionista';
   const isPeluquero = user?.rol === 'peluquero';
 
-  // Lógica de temas por rol
   let theme;
 
   if (isVeterinario) {
@@ -53,7 +53,6 @@ const HomePage = ({ user }) => {
     };
   } else if (isPeluquero) {
     theme = {
-      // Imagen de fondo exclusiva para Estética/Peluquería
       bgImage: `url('https://images.unsplash.com/photo-1516734212186-a967f81ad0d7?q=80&w=2071&auto=format&fit=crop')`,
       greeting: '¡Hola Peluquero! ✂️',
       subGreeting: 'Dejando a nuestras mascotas más lindas que nunca',
@@ -104,53 +103,55 @@ const HomePage = ({ user }) => {
       <div 
         className="text-center text-white p-5 rounded-5 shadow-xl"
         style={{ 
-          backgroundColor: 'rgba(0, 0, 0, 0.40)', 
-          backdropFilter: 'blur(8px)', 
-          maxWidth: '900px',
+          backgroundColor: 'rgba(0, 0, 0, 0.45)', // Un poquito más oscuro para que se lea mejor
+          backdropFilter: 'blur(10px)', 
+          maxWidth: '1200px',
           border: '1px solid rgba(255,255,255,0.15)'
         }}
       >
-        <h1 className="fw-black mb-3" style={{ fontSize: '4.5rem', letterSpacing: '-1.5px', textShadow: '4px 4px 12px rgba(0,0,0,0.8)' }}>
+        {/* 1. BIENVENIDA */}
+        <h1 className="fw-black mb-2" style={{ fontSize: '4rem', letterSpacing: '-1.5px', textShadow: '4px 4px 12px rgba(0,0,0,0.8)' }}>
           {theme.greeting}
         </h1>
         <p className="lead fs-3 mb-5 opacity-90">
           {theme.subGreeting}
         </p>
 
+        {/* 2. BOTONES PRINCIPALES */}
         <div className="d-flex flex-wrap justify-content-center gap-4 mb-5">
           <Link 
             to={theme.button1To}
-            className={`btn btn-xl px-5 py-4 rounded-pill shadow-lg fw-bold d-flex align-items-center justify-content-center ${isVeterinario ? 'btn-info text-white' : isPeluquero ? 'btn-danger text-white' : 'btn-success text-white'}`}
-            style={{ fontSize: '1.8rem', minWidth: '340px' }}
+            className={`btn btn-xl px-5 py-3 rounded-pill shadow-lg fw-bold d-flex align-items-center justify-content-center ${isVeterinario ? 'btn-info text-white' : isPeluquero ? 'btn-danger text-white' : 'btn-success text-white'}`}
+            style={{ fontSize: '1.5rem', minWidth: '300px' }}
           >
-            <FontAwesomeIcon icon={theme.button1Icon} className="me-3 fs-1" />
+            <FontAwesomeIcon icon={theme.button1Icon} className="me-3 fs-2" />
             {theme.button1Text}
           </Link>
 
           <Link 
             to={theme.button2To}
-            className={`btn btn-xl px-5 py-4 rounded-pill shadow-lg fw-bold d-flex align-items-center justify-content-center ${isRecepcionista ? 'btn-warning text-dark' : isPeluquero ? 'btn-light text-danger' : 'btn-primary text-white'}`}
-            style={{ fontSize: '1.8rem', minWidth: '340px' }}
+            className={`btn btn-xl px-5 py-3 rounded-pill shadow-lg fw-bold d-flex align-items-center justify-content-center ${isRecepcionista ? 'btn-warning text-dark' : isPeluquero ? 'btn-light text-danger' : 'btn-primary text-white'}`}
+            style={{ fontSize: '1.5rem', minWidth: '300px' }}
           >
-            <FontAwesomeIcon icon={theme.button2Icon} className="me-3 fs-1" />
+            <FontAwesomeIcon icon={theme.button2Icon} className="me-3 fs-2" />
             {theme.button2Text}
           </Link>
         </div>
 
-        <div className="row g-4 justify-content-center">
+        {/* 3. MENSAJES Y RECORDATORIOS */}
+        <div className="row g-4 justify-content-center mb-5">
           <div className="col-md-6">
-            <div className="card bg-dark bg-opacity-75 text-white border-0 shadow-lg p-4 rounded-4 h-100">
+            <div className="card bg-dark bg-opacity-50 text-white border-0 shadow-lg p-4 rounded-4 h-100">
               <div className="d-flex align-items-center justify-content-center mb-3">
                 <FontAwesomeIcon icon={theme.messageIcon} size="2x" className="me-3" style={{ color: isVeterinario ? '#26C6DA' : isRecepcionista ? '#ffc107' : isPeluquero ? '#ff69b4' : '#ff4757' }} />
                 <h4 className="mb-0">{theme.messageTitle}</h4>
               </div>
-              <p className="fs-4 mb-0">{theme.messageText}</p>
-              <small className="mt-3 opacity-75">— Tu equipo Malfi</small>
+              <p className="fs-5 mb-0 italic">{theme.messageText}</p>
             </div>
           </div>
 
           <div className="col-md-6">
-            <div className="card bg-dark bg-opacity-75 text-white border-0 shadow-lg p-4 rounded-4 h-100">
+            <div className="card bg-dark bg-opacity-50 text-white border-0 shadow-lg p-4 rounded-4 h-100">
               <div className="d-flex align-items-center justify-content-center mb-3">
                 <FontAwesomeIcon icon={theme.reminderIcon} size="2x" className="me-3" style={{ color: isVeterinario ? '#06D6A0' : isRecepcionista ? '#17a2b8' : isPeluquero ? '#ffc107' : '#feca57' }} />
                 <h4 className="mb-0">{theme.reminderTitle}</h4>
@@ -160,11 +161,18 @@ const HomePage = ({ user }) => {
           </div>
         </div>
 
+        {/* 4. PANEL DE REPORTES (AL FINAL) */}
+        {/* Acordate de quitarle el fondo al componente DueñoDashboard para que use este */}
+        <div className="mt-2 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+          <DueñoDashboard />
+        </div>
+
+        {/* BOTÓN EXTRA SI NO ES DUEÑA */}
         {(isVeterinario || isRecepcionista || isPeluquero) && (
-          <div className="mt-5">
+          <div className="mt-4">
             <Link 
               to="/mascotas"
-              className="btn btn-outline-light btn-lg px-5 py-3 rounded-pill shadow fw-bold"
+              className="btn btn-outline-light btn-lg px-5 py-2 rounded-pill shadow fw-bold"
             >
               <FontAwesomeIcon icon={faPaw} className="me-2" />
               {isPeluquero ? 'Lista de Clientes' : isRecepcionista ? 'Lista de Pacientes' : 'Ver Pacientes'}

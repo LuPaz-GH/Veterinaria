@@ -21,25 +21,24 @@ const Sidebar = () => {
   const esRecepcionista = rol === 'recepcionista';
   const esPeluquero = rol === 'peluquero';
 
-  // Colores por rol - personalizados
   let colorFondo;
   let colorIconoPaw;
   let colorActivo = 'rgba(255, 255, 255, 0.25)';
 
   if (esAdmin) {
-    colorFondo = 'linear-gradient(180deg, #6a1b9a 0%, #9c27b0 100%)';      // Morado original
+    colorFondo = 'linear-gradient(180deg, #6a1b9a 0%, #9c27b0 100%)';
     colorIconoPaw = '#ab47bc';
   } else if (esVeterinario) {
-    colorFondo = 'linear-gradient(180deg, #00acc1 0%, #26c6da 100%)';      // Celeste/Turquesa
-    colorIconoPaw = '#006D77';                                             // ← Azul oscuro que contrasta perfecto con blanco
+    colorFondo = 'linear-gradient(180deg, #00acc1 0%, #26c6da 100%)';
+    colorIconoPaw = '#006D77';
   } else if (esPeluquero) {
-    colorFondo = 'linear-gradient(180deg, #ff9ac7 0%, #ff69b4 100%)';      // Rosa
+    colorFondo = 'linear-gradient(180deg, #ff9ac7 0%, #ff69b4 100%)';
     colorIconoPaw = '#ff69b4';
   } else if (esRecepcionista) {
-    colorFondo = 'linear-gradient(180deg, #4caf50 0%, #66bb6a 100%)';      // Verde fresco
-    colorIconoPaw = '#1B5E20';                                             // ← Verde oscuro fuerte, queda hermoso
+    colorFondo = 'linear-gradient(180deg, #4caf50 0%, #66bb6a 100%)';
+    colorIconoPaw = '#1B5E20';
   } else {
-    colorFondo = 'linear-gradient(180deg, #757575 0%, #9e9e9e 100%)';      // Gris fallback
+    colorFondo = 'linear-gradient(180deg, #757575 0%, #9e9e9e 100%)';
     colorIconoPaw = '#424242';
   }
 
@@ -48,14 +47,13 @@ const Sidebar = () => {
   ];
 
   if (esVeterinario || esAdmin || esRecepcionista) {
-    menuItems.push({ name: 'Pacientes', path: '/mascotas', icon: faPaw });
+    menuItems.push({ name: 'Clientes', path: '/clientes', icon: faUsers });
   }
 
   if (!esPeluquero || esAdmin || esRecepcionista) {
     menuItems.push({ name: 'Turnos', path: '/turnos', icon: faCalendarCheck });
   }
 
-  // ← CORRECCIÓN: ahora también Recepcionista ve Estética
   if (esPeluquero || esAdmin || esRecepcionista) {
     menuItems.push({ name: 'Estética / Peluquería', path: '/estetica', icon: faScissors });
   }
@@ -73,79 +71,41 @@ const Sidebar = () => {
     menuItems.push({ name: 'Historial Clínico', path: '/historial', icon: faHistory });
   }
 
+  // SECCIÓN ADMIN: Se eliminó el "Panel Dueña" de aquí
   if (esAdmin) {
     menuItems.push(
-      { name: 'Dueños', path: '/duenos', icon: faUsers },
-      { name: 'Panel Dueña', path: '/admin', icon: faChartLine },
+      { name: 'Auditoría', path: '/auditoria', icon: faHistory },
       { name: 'Gestión Empleados', path: '/empleados', icon: faUsersCog }
     );
   }
 
-  const handleLogout = () => {
-    setShowLogoutModal(true);
-  };
-
+  const handleLogout = () => { setShowLogoutModal(true); };
   const confirmarLogout = () => {
     localStorage.removeItem('user');
+    localStorage.removeItem('token');
     navigate('/login');
-    setShowLogoutModal(false);
-  };
-
-  const cancelarLogout = () => {
     setShowLogoutModal(false);
   };
 
   if (!user) return null;
 
   return (
-    <div 
-      className="d-flex flex-column flex-shrink-0 p-3 text-white shadow-lg"
-      style={{ 
-        width: '280px', 
-        height: '100vh', 
-        background: colorFondo, 
-        position: 'fixed', 
-        left: 0, 
-        top: 0, 
-        zIndex: 4000,
-        overflowY: 'auto'
-      }}
-    >
+    <div className="d-flex flex-column flex-shrink-0 p-3 text-white shadow-lg" style={{ width: '280px', height: '100vh', background: colorFondo, position: 'fixed', left: 0, top: 0, zIndex: 4000, overflowY: 'auto' }}>
       <div className="d-flex align-items-center mb-5">
-        <div 
-          className="bg-white rounded-circle p-2 me-3 d-flex align-items-center justify-content-center shadow-sm"
-          style={{ 
-            width: '50px', 
-            height: '50px',
-            border: '2px solid rgba(0,0,0,0.1)'  // ← borde sutil para que destaque más
-          }}
-        >
-          <FontAwesomeIcon 
-            icon={faPaw} 
-            size="xl"  // ← Cambiado de lg a xl para que se vea más grande y clara
-            style={{ color: colorIconoPaw }} 
-          />
+        <div className="bg-white rounded-circle p-2 me-3 d-flex align-items-center justify-content-center shadow-sm" style={{ width: '50px', height: '50px', border: '2px solid rgba(0,0,0,0.1)' }}>
+          <FontAwesomeIcon icon={faPaw} size="xl" style={{ color: colorIconoPaw }} />
         </div>
         <div>
           <span className="fs-4 fw-bold d-block">Malfi</span>
-          <small className="opacity-90 text-capitalize">{rol}</small>
+          <span className="badge bg-white text-dark text-capitalize small">{rol}</span>
         </div>
       </div>
-
       <ul className="nav nav-pills flex-column mb-auto">
         {menuItems.map((item) => {
           const isActive = location.pathname === item.path;
           return (
             <li className="nav-item mb-2" key={item.name}>
-              <Link 
-                to={item.path} 
-                className="nav-link text-white d-flex align-items-center gap-3 py-3 rounded-pill"
-                style={{ 
-                  background: isActive ? colorActivo : 'transparent',
-                  border: isActive ? '1px solid white' : '1px solid transparent',
-                  fontWeight: isActive ? 'bold' : 'normal'
-                }}
-              >
+              <Link to={item.path} className="nav-link text-white d-flex align-items-center gap-3 py-3 rounded-pill" style={{ background: isActive ? colorActivo : 'transparent', border: isActive ? '1px solid white' : '1px solid transparent', fontWeight: isActive ? 'bold' : 'normal' }}>
                 <FontAwesomeIcon icon={item.icon} style={{ width: '25px', fontSize: '1.2rem' }} />
                 <span className="fs-5">{item.name}</span>
               </Link>
@@ -153,26 +113,9 @@ const Sidebar = () => {
           );
         })}
       </ul>
-
       <hr className="bg-white opacity-50" />
-      <button 
-        className="btn btn-outline-light rounded-pill d-flex align-items-center gap-3 py-3"
-        onClick={handleLogout}
-      >
-        <FontAwesomeIcon icon={faSignOutAlt} />
-        <span className="fw-bold">Cerrar Sesión</span>
-      </button>
-
-      <ConfirmModal
-        show={showLogoutModal}
-        onClose={cancelarLogout}
-        onConfirm={confirmarLogout}
-        title="Cerrar sesión"
-        message="¿Desea cerrar sesión?"
-        confirmText="Sí, cerrar"
-        cancelText="Cancelar"
-        confirmColor="danger"
-      />
+      <button className="btn btn-outline-light rounded-pill d-flex align-items-center gap-3 py-3 mb-3" onClick={handleLogout}><FontAwesomeIcon icon={faSignOutAlt} /><span className="fw-bold">Cerrar Sesión</span></button>
+      <ConfirmModal show={showLogoutModal} onClose={() => setShowLogoutModal(false)} onConfirm={confirmarLogout} title="Cerrar sesión" message="¿Desea cerrar sesión?" confirmText="Sí, cerrar" cancelText="Cancelar" confirmColor="danger" />
     </div>
   );
 };

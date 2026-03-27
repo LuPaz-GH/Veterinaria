@@ -14,7 +14,6 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import api from '../services/api'; 
 
-// ✅ Formatear fecha ISO fea tipo: 2026-02-15T03:00:00.000Z -> 15/02/2026
 const formatearFecha = (fechaISO) => {
     if (!fechaISO) return "";
     return fechaISO.split("T")[0].split("-").reverse().join("/");
@@ -23,7 +22,6 @@ const formatearFecha = (fechaISO) => {
 const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
         const entry = payload[0].payload || {};
-        // Tomamos el nombre del servicio de forma segura
         const serviceName = entry.name || entry.tipo || entry.servicio || label || payload[0].name || 'Servicio';
 
         const value = payload[0].value;
@@ -61,14 +59,9 @@ const DueñoDashboard = () => {
 
     const fetchDatos = async () => {
         try {
-            console.log("Intentando petición a /api/dashboard-reportes...");
             const res = await api.get('/dashboard-reportes');
-            console.log("Respuesta status:", res.status);
-
             const data = res.data;
-            console.log("Datos reales del backend:", data);
 
-            // Normalizamos graficoTurnos para que siempre tenga "name" y "value"
             const turnosNormalizados = (data.graficoTurnos || []).map(item => ({
                 name: item.name || item.tipo || item.servicio || 'Sin nombre',
                 value: Number(item.value || 0)
@@ -79,18 +72,13 @@ const DueñoDashboard = () => {
                 !Array.isArray(data.graficoVentas) || data.graficoVentas.length === 0 ||
                 !Array.isArray(turnosNormalizados) || turnosNormalizados.length === 0;
 
-            if (needsFallback) {
-                console.warn("Datos incompletos del backend → forzando fallback");
-                throw new Error("Datos de gráficos incompletos");
-            }
+            if (needsFallback) throw new Error("Datos incompletos");
 
             setReporte({
                 ...data,
                 graficoTurnos: turnosNormalizados
             });
         } catch (error) {
-            console.error("Usando fallback:", error.message);
-
             setReporte({
                 totales: { dia: 463700, semana: 1200000, mes: 4500000, anio: 18000000 },
                 graficoVentas: [
@@ -121,11 +109,9 @@ const DueñoDashboard = () => {
         fetchDatos();
     }, []);
 
-    // --- FUNCIONES DE EXPORTACIÓN ---
     const exportarExcel = () => {
         if (!reporte) return;
         const wb = XLSX.utils.book_new();
-
         const wsTotales = XLSX.utils.json_to_sheet([
             { Concepto: "Venta Hoy", Monto: reporte.totales?.dia },
             { Concepto: "Esta Semana", Monto: reporte.totales?.semana },
@@ -133,29 +119,17 @@ const DueñoDashboard = () => {
             { Concepto: "Venta Año", Monto: reporte.totales?.anio }
         ]);
         XLSX.utils.book_append_sheet(wb, wsTotales, "Resumen General");
-
-        const wsVentas = XLSX.utils.json_to_sheet(reporte.graficoVentas || []);
-        XLSX.utils.book_append_sheet(wb, wsVentas, "Evolución Ventas");
-
         XLSX.writeFile(wb, `Reporte_Malfi_${new Date().toLocaleDateString()}.xlsx`);
     };
 
     const exportarPDF = async () => {
         const element = dashboardRef.current;
         if (!element) return;
-
-        const canvas = await html2canvas(element, {
-            scale: 2,
-            useCORS: true,
-            backgroundColor: "#2e144b"
-        });
-
+        const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#2e144b" });
         const imgData = canvas.toDataURL('image/png');
         const pdf = new jsPDF('p', 'mm', 'a4');
-        const imgProps = pdf.getImageProperties(imgData);
         const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
         pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
         pdf.save(`Reporte_Malfi_Completo.pdf`);
     };
@@ -170,61 +144,35 @@ const DueñoDashboard = () => {
         boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)'
     };
 
-    if (loading) return (
-        <div className="d-flex justify-content-center align-items-center vh-100 bg-dark text-white">
-            <h3>Cargando reporte de Malfi...</h3>
-        </div>
-    );
+    if (loading) return null; // Evitamos parpadeos de carga dentro de la Home
 
-    const graficoVentas = reporte?.graficoVentas || [];
-    const graficoTurnos = reporte?.graficoTurnos || [];
-    const totalServicios = graficoTurnos.reduce((acc, curr) => acc + (curr?.value || 0), 0);
-
-    // 🔥 Si graficoVentas viene con fechas ISO del backend, las convertimos
-    const graficoVentasFormateado = graficoVentas.map(item => ({
+    const graficoVentasFormateado = (reporte?.graficoVentas || []).map(item => ({
         ...item,
         dia: item.dia?.includes("T") ? formatearFecha(item.dia) : item.dia
     }));
 
     return (
-        <div
-            ref={dashboardRef}
-            className="container-fluid p-4 p-md-5 min-vh-100 position-relative"
-            style={{
-                backgroundImage: `url('https://i.pinimg.com/1200x/95/21/0f/95210f85d0c87c7e21952f56a9a834fd.jpg')`,
-                backgroundSize: 'cover',
-                backgroundAttachment: 'fixed',
-                backgroundPosition: 'center'
-            }}
-        >
-
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(40, 0, 80, 0.3)', zIndex: 0 }} />
-
-            <div className="position-relative" style={{ zIndex: 1 }}>
-                <div className="d-flex justify-content-between align-items-center mb-5 flex-wrap gap-3">
-                    <div className="text-white">
-                        <h1 className="fw-bold mb-0">Panel de reportes</h1>
-                        <p className="opacity-75 fw-bold mb-0">Malfi Veterinaria • Tucumán</p>
+        <div ref={dashboardRef} className="container-fluid p-0 position-relative">
+            {/* ELIMINADO: Se quitó el backgroundImage, el fixed y el overlay de color 
+               para que herede el fondo de la HomePage.
+            */}
+            <div className="position-relative">
+                <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+                    <div className="text-white text-start">
+                        <h2 className="fw-bold mb-0">Panel de reportes</h2>
+                        <p className="opacity-75 fw-bold mb-0 small">Malfi Veterinaria • Tucumán</p>
                     </div>
                     <div className="d-flex gap-2">
-                        <button
-                            className="btn btn-success rounded-pill px-4 fw-bold shadow border-0"
-                            onClick={exportarExcel}
-                            style={{ backgroundColor: '#28a745' }}
-                        >
+                        <button className="btn btn-success btn-sm rounded-pill px-3 fw-bold shadow border-0" onClick={exportarExcel}>
                             <FontAwesomeIcon icon={faFileExcel} className="me-2" /> EXCEL
                         </button>
-                        <button
-                            className="btn btn-danger rounded-pill px-4 fw-bold shadow border-0"
-                            onClick={exportarPDF}
-                            style={{ backgroundColor: '#dc3545' }}
-                        >
-                            <FontAwesomeIcon icon={faFilePdf} className="me-2" /> PDF COMPLETO
+                        <button className="btn btn-danger btn-sm rounded-pill px-3 fw-bold shadow border-0" onClick={exportarPDF}>
+                            <FontAwesomeIcon icon={faFilePdf} className="me-2" /> PDF
                         </button>
                     </div>
                 </div>
 
-                <div className="row g-3 mb-5">
+                <div className="row g-3 mb-4">
                     {[
                         { label: 'VENTA HOY', val: reporte?.totales?.dia || 0, icon: faCoins },
                         { label: 'ESTA SEMANA', val: reporte?.totales?.semana || 0, icon: faCalendarWeek },
@@ -232,172 +180,81 @@ const DueñoDashboard = () => {
                         { label: 'VENTA AÑO', val: reporte?.totales?.anio || 0, icon: faCalendarAlt }
                     ].map((item, idx) => (
                         <div className="col-6 col-lg-3" key={idx}>
-                            <div className="p-4 text-center text-white" style={glassStyle}>
-                                <FontAwesomeIcon
-                                    icon={item.icon}
-                                    className="mb-2"
-                                    style={{ fontSize: '2.2rem', opacity: 0.9 }}
-                                />
-                                <small className="fw-bold opacity-75 d-block mb-1">{item.label}</small>
-                                <h3 className="fw-bold mb-0">${Number(item.val).toLocaleString('es-AR')}</h3>
+                            <div className="p-3 text-center text-white" style={glassStyle}>
+                                <FontAwesomeIcon icon={item.icon} className="mb-2" style={{ fontSize: '1.5rem', opacity: 0.8 }} />
+                                <small className="fw-bold opacity-75 d-block mb-1" style={{fontSize: '0.7rem'}}>{item.label}</small>
+                                <h4 className="fw-bold mb-0" style={{fontSize: '1.2rem'}}>${Number(item.val).toLocaleString('es-AR')}</h4>
                             </div>
                         </div>
                     ))}
                 </div>
 
                 <div className="row g-4">
-                    {/* Evolución de Ventas */}
                     <div className="col-12">
                         <div className="p-4" style={glassStyle}>
-                            <h4 className="text-white fw-bold mb-4">
+                            <h5 className="text-white fw-bold mb-4 text-start">
                                 <FontAwesomeIcon icon={faArrowTrendUp} className="me-2 text-success" /> Evolución de Ventas
-                            </h4>
-
-                            <div style={{
-                                width: '100%',
-                                height: '500px',
-                                minHeight: '500px',
-                                position: 'relative',
-                                overflow: 'hidden'
-                            }}>
-                                {graficoVentasFormateado.length > 0 ? (
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <BarChart data={graficoVentasFormateado}>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
-                                            <XAxis
-                                                dataKey="dia"
-                                                stroke="#fff"
-                                                tick={{ fontSize: 14, fill: '#fff' }}
-                                                tickLine={{ stroke: '#fff' }}
-                                            />
-                                            <YAxis
-                                                stroke="#fff"
-                                                tick={{ fontSize: 14, fill: '#fff' }}
-                                                tickLine={{ stroke: '#fff' }}
-                                            />
-                                            <Tooltip content={<CustomTooltip />} />
-                                            <Bar dataKey="total" fill="#99cc33" radius={[10, 10, 0, 0]} barSize={50} />
-                                        </BarChart>
-                                    </ResponsiveContainer>
-                                ) : (
-                                    <div className="d-flex justify-content-center align-items-center h-100 text-white">
-                                        <p>No hay datos de ventas aún...</p>
-                                    </div>
-                                )}
+                            </h5>
+                            <div style={{ width: '100%', height: '350px' }}>
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={graficoVentasFormateado}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
+                                        <XAxis dataKey="dia" stroke="#fff" tick={{ fontSize: 12, fill: '#fff' }} />
+                                        <YAxis stroke="#fff" tick={{ fontSize: 12, fill: '#fff' }} />
+                                        <Tooltip content={<CustomTooltip />} />
+                                        <Bar dataKey="total" fill="#99cc33" radius={[10, 10, 0, 0]} barSize={40} />
+                                    </BarChart>
+                                </ResponsiveContainer>
                             </div>
                         </div>
                     </div>
 
-                    {/* Distribución de Servicios - CORREGIDO */}
                     <div className="col-12 col-xl-6">
                         <div className="p-4 h-100" style={glassStyle}>
-                            <h4 className="text-white fw-bold mb-4 text-center">Distribución de Servicios</h4>
-
-                            <div style={{
-                                width: '100%',
-                                height: '500px',
-                                minHeight: '500px',
-                                position: 'relative',
-                                overflow: 'hidden'
-                            }}>
-                                <div style={{
-                                    position: 'absolute',
-                                    top: '45%',
-                                    left: '50%',
-                                    transform: 'translate(-50%, -50%)',
-                                    textAlign: 'center',
-                                    color: '#fff'
-                                }}>
-                                    <h2 className="fw-bold mb-0" style={{ fontSize: '3rem' }}>{totalServicios}</h2>
+                            <h5 className="text-white fw-bold mb-4">Distribución de Servicios</h5>
+                            <div style={{ width: '100%', height: '300px', position: 'relative' }}>
+                                <div style={{ position: 'absolute', top: '45%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', color: '#fff' }}>
+                                    <h3 className="fw-bold mb-0">{(reporte?.graficoTurnos || []).reduce((acc, curr) => acc + (curr?.value || 0), 0)}</h3>
                                     <small className="fw-bold opacity-75">SERVICIOS</small>
                                 </div>
-
-                                {graficoTurnos.length > 0 ? (
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <PieChart>
-                                            <Pie
-                                                data={graficoTurnos}
-                                                dataKey="value"
-                                                nameKey="name"           // ← CLAVE IMPORTANTE: usa "name" para la leyenda y tooltip
-                                                innerRadius={100}
-                                                outerRadius={140}
-                                                stroke="none"
-                                                paddingAngle={5}
-                                            >
-                                                {graficoTurnos.map((entry, index) => (
-                                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                                ))}
-                                            </Pie>
-
-                                            <Tooltip content={<CustomTooltip />} />
-
-                                            <Legend
-                                                verticalAlign="bottom"
-                                                align="center"
-                                                iconSize={12}
-                                                wrapperStyle={{
-                                                    color: '#fff',
-                                                    fontSize: '14px',
-                                                    fontWeight: 'bold'
-                                                }}
-                                            />
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                ) : (
-                                    <div className="d-flex justify-content-center align-items-center h-100 text-white">
-                                        <p>No hay datos de servicios aún...</p>
-                                    </div>
-                                )}
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie
+                                            data={reporte?.graficoTurnos || []}
+                                            dataKey="value"
+                                            innerRadius={70}
+                                            outerRadius={100}
+                                            stroke="none"
+                                            paddingAngle={5}
+                                        >
+                                            {(reporte?.graficoTurnos || []).map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                            ))}
+                                        </Pie>
+                                        <Tooltip content={<CustomTooltip />} />
+                                        <Legend wrapperStyle={{ color: '#fff', fontSize: '12px' }} />
+                                    </PieChart>
+                                </ResponsiveContainer>
                             </div>
                         </div>
                     </div>
 
-                    {/* Tendencia Mensual */}
                     <div className="col-12 col-xl-6">
                         <div className="p-4 h-100" style={glassStyle}>
-                            <h4 className="text-white fw-bold mb-4">
-                                <FontAwesomeIcon icon={faArrowTrendUp} className="me-2 text-info" /> Tendencia Mensual
-                            </h4>
-
-                            <div style={{
-                                width: '100%',
-                                height: '500px',
-                                minHeight: '500px',
-                                position: 'relative',
-                                overflow: 'hidden'
-                            }}>
-                                {reporte?.tendenciaMensual?.length > 0 ? (
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <LineChart data={reporte.tendenciaMensual}>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                                            <XAxis
-                                                dataKey="mes"
-                                                stroke="#fff"
-                                                tick={{ fontSize: 14, fill: '#fff' }}
-                                            />
-                                            <YAxis
-                                                stroke="#fff"
-                                                tick={{ fontSize: 14, fill: '#fff' }}
-                                            />
-                                            <Tooltip content={<CustomTooltip />} />
-                                            <Line
-                                                type="monotone"
-                                                dataKey="monto"
-                                                stroke="#00d4ff"
-                                                strokeWidth={4}
-                                                dot={{ r: 6, fill: '#00d4ff' }}
-                                            />
-                                        </LineChart>
-                                    </ResponsiveContainer>
-                                ) : (
-                                    <div className="d-flex justify-content-center align-items-center h-100 text-white">
-                                        <p>No hay datos de tendencia aún...</p>
-                                    </div>
-                                )}
+                            <h5 className="text-white fw-bold mb-4">Tendencia Mensual</h5>
+                            <div style={{ width: '100%', height: '300px' }}>
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={reporte?.tendenciaMensual || []}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                                        <XAxis dataKey="mes" stroke="#fff" tick={{ fontSize: 12 }} />
+                                        <YAxis stroke="#fff" tick={{ fontSize: 12 }} />
+                                        <Tooltip content={<CustomTooltip />} />
+                                        <Line type="monotone" dataKey="monto" stroke="#00d4ff" strokeWidth={3} dot={{ r: 4, fill: '#00d4ff' }} />
+                                    </LineChart>
+                                </ResponsiveContainer>
                             </div>
                         </div>
                     </div>
-
                 </div>
             </div>
         </div>

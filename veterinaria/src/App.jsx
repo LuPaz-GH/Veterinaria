@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Sidebar from './component/Sidebar';
 import HomePage from './pages/HomePage';
-import MascotasPage from './pages/MascotasPage';
+import MascotasPage from './pages/ClientesPage'; // Importación correcta del archivo físico
 import TurnosPage from './pages/TurnosPage';
 import DueñosPage from './pages/DueñosPage';
 import InventarioPage from './pages/InventarioPage';
@@ -16,6 +16,7 @@ import HistorialPage from './pages/HistorialPage';
 import PeluqueriaPeluqueroView from './pages/PeluqueriaPeluqueroView';
 import DueñoDashboard from './pages/DueñoDashboard';
 import GestionEmpleados from './pages/GestionEmpleados';
+import AuditoriaPage from './pages/AuditoriaPage';
 import ResetPassword from './component/ResetPassword';
 
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -56,12 +57,16 @@ const AppContent = () => {
         style={{ marginLeft: esLogin || !user ? '0' : '280px', minHeight: '100vh' }}
       >
         <Routes>
+          {/* Rutas de autenticación */}
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/login" element={<LoginPage />} />
           
           <Route path="/home" element={<HomePage user={user} />} />
           
-          <Route path="/mascotas" element={<MascotasPage user={user} />} />
+          {/* CORRECCIÓN: Se cambió /mascotas por /clientes para que el Sidebar funcione */}
+          <Route path="/clientes" element={<MascotasPage user={user} />} />
+          <Route path="/mascotas" element={<Navigate to="/clientes" replace />} />
+          
           <Route path="/turnos" element={<TurnosPage user={user} />} />
           <Route path="/duenos" element={<DueñosPage user={user} />} />
           <Route path="/inventario" element={<InventarioPage user={user} />} />
@@ -91,7 +96,14 @@ const AppContent = () => {
             element={user?.rol === 'admin' ? <GestionEmpleados /> : <Navigate to="/home" replace />} 
           />
 
+          <Route 
+            path="/auditoria" 
+            element={user?.rol === 'admin' ? <AuditoriaPage user={user} /> : <Navigate to="/home" replace />} 
+          />
+
           <Route path="/reset-password" element={<ResetPassword />} />
+          
+          {/* Redirección por defecto */}
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
       </main>
