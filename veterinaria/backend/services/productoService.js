@@ -174,6 +174,27 @@ const productoService = {
         }
     },
 
+    // NUEVA FUNCIÓN: Obtener productos eliminados (Papelera)
+    getEliminadosByCategoria: async (categoria) => {
+        const [rows] = await pool.query(`
+            SELECT p.*, e.nombre as responsable_borrado
+            FROM productos p
+            LEFT JOIN empleados e ON p.borrado_por = e.id
+            WHERE p.activo = 0 AND p.categoria = ?
+            ORDER BY p.fecha_borrado DESC
+        `, [categoria]);
+        return rows;
+    },
+
+    // NUEVA FUNCIÓN: Restaurar producto
+    restaurar: async (id) => {
+        const [result] = await pool.query(
+            'UPDATE productos SET activo = 1, borrado_por = NULL, fecha_borrado = NULL WHERE id = ?',
+            [id]
+        );
+        return result.affectedRows > 0;
+    },
+
     getHistorialMovimientos: async (filtros = {}) => {
         const { buscar, fechaDesde, fechaHasta, categoria, accion, responsable, orden, direccion, pagina, limite, mostrarEliminados } = filtros;
         const offset = (pagina - 1) * limite;

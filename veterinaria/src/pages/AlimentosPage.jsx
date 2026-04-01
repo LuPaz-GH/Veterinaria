@@ -1,6 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faBowlFood, faPlus, faEdit, faTrash, faSearch, faFilePdf, faFileExcel, faInfoCircle, faDollarSign, faBox, faUserEdit, faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
+import { 
+    faBowlFood, faPlus, faEdit, faTrash, faSearch, faFilePdf, 
+    faFileExcel, faInfoCircle, faDollarSign, faBox, faUserEdit, 
+    faArrowLeft, faArrowRight, faTrashAlt, faHistory, faTrashRestore 
+} from '@fortawesome/free-solid-svg-icons';
 import ConfirmModal from '../component/ConfirmModal';
 import ProductoModal from '../component/ProductoModal';
 import * as XLSX from 'xlsx';
@@ -21,28 +25,64 @@ const AlimentosPage = () => {
     const [limite] = useState(12);
     const [loading, setLoading] = useState(false);
 
-    const cargarAlimentos = async () => {
+    const [showPapelera, setShowPapelera] = useState(false);
+    const [alimentosEliminados, setAlimentosEliminados] = useState([]);
+
+    // FUNCIÓN DE CARGA Y BÚSQUEDA GLOBAL COMBINADA
+    const cargarAlimentos = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await api.get(`/productos/alimentos?pagina=${pagina}&limite=${limite}`);
-            console.log('📦 Respuesta de alimentos:', res.data);
-            // El backend devuelve { productos: [], total: X, pagina: X, totalPaginas: X }
-            const data = res.data.productos || res.data || [];
-            setAlimentos(Array.isArray(data) ? data : []);
+            let res;
+            if (busqueda.trim() !== '') {
+                // Si hay texto, buscamos en todo el inventario
+                res = await api.get(`/productos/buscar?q=${busqueda}&categoria=alimentos`);
+                const data = res.data.productos || res.data || [];
+                // Filtramos por categoría por si el backend devuelve todo
+                setAlimentos(Array.isArray(data) ? data.filter(p => p.categoria === 'alimentos') : []);
+            } else {
+                // Si está vacío, paginación normal
+                res = await api.get(`/productos/alimentos?pagina=${pagina}&limite=${limite}`);
+                const data = res.data.productos || res.data || [];
+                setAlimentos(Array.isArray(data) ? data : []);
+            }
         } catch (err) {
             console.error('❌ Error al cargar alimentos:', err);
             setAlimentos([]);
         } finally {
             setLoading(false);
         }
+    }, [pagina, busqueda, limite]);
+
+    // EFECTO CON DEBOUNCE PARA NO SATURAR EL SERVER
+    useEffect(() => {
+        const timeoutId = setTimeout(() => {
+            cargarAlimentos();
+        }, 300);
+        return () => clearTimeout(timeoutId);
+    }, [cargarAlimentos]);
+
+    const cargarPapelera = async () => {
+        try {
+            const res = await api.get('/productos/papelera/alimentos');
+            setAlimentosEliminados(res.data);
+        } catch (err) {
+            console.error('❌ Error al cargar papelera:', err);
+        }
     };
 
-    useEffect(() => {
-        cargarAlimentos();
-    }, [pagina]);
+    const restaurarAlimento = async (id) => {
+        try {
+            await api.put(`/productos/restaurar/${id}`);
+            cargarPapelera();
+            cargarAlimentos();
+        } catch (err) {
+            console.error('❌ Error al restaurar:', err);
+            alert('Error al restaurar el producto');
+        }
+    };
 
     const exportarExcel = () => {
-        const ws = XLSX.utils.json_to_sheet(filtrados.map(a => ({
+        const ws = XLSX.utils.json_to_sheet(alimentos.map(a => ({
             Nombre: a.nombre,
             Precio: a.precio_venta,
             Stock: a.stock,
@@ -59,7 +99,7 @@ const AlimentosPage = () => {
         autoTable(doc, {
             startY: 30,
             head: [['Nombre', 'Precio', 'Stock', 'Vencimiento']],
-            body: filtrados.map(a => [
+            body: alimentos.map(a => [
                 a.nombre,
                 `$${a.precio_venta}`,
                 a.stock,
@@ -79,8 +119,6 @@ const AlimentosPage = () => {
         return { texto: '', clase: '', vencido: false };
     };
 
-    const filtrados = alimentos.filter(a => a.nombre.toLowerCase().includes(busqueda.toLowerCase()));
-
     return (
         <div className="container-fluid min-vh-100 p-4 position-relative" style={{
             backgroundImage: `url('https://i.pinimg.com/736x/48/93/4a/48934a256d6b89731eb45e6808a6a4a5.jpg')`,
@@ -95,6 +133,12 @@ const AlimentosPage = () => {
                         <FontAwesomeIcon icon={faBowlFood} className="me-2" /> Alimentos
                     </h1>
                     <div className="d-flex gap-2">
+                        <button 
+                            className="btn btn-danger rounded-pill px-3 shadow-sm" 
+                            onClick={() => { cargarPapelera(); setShowPapelera(true); }}
+                        >
+                            <FontAwesomeIcon icon={faTrashAlt} className="me-2" /> Papelera
+                        </button>
                         <button className="btn btn-danger rounded-pill px-3 shadow-sm" onClick={exportarPDF}>
                             <FontAwesomeIcon icon={faFilePdf} />
                         </button>
@@ -116,9 +160,9 @@ const AlimentosPage = () => {
                             <input
                                 type="text"
                                 className="form-control border-0 py-2 ps-1"
-                                placeholder="Buscar alimento..."
+                                placeholder="Buscar en todo el stock de alimentos..."
                                 value={busqueda}
-                                onChange={(e) => setBusqueda(e.target.value)}
+                                onChange={(e) => { setBusqueda(e.target.value); setPagina(1); }}
                             />
                         </div>
                     </div>
@@ -129,12 +173,12 @@ const AlimentosPage = () => {
                         <div className="spinner-border text-light" role="status">
                             <span className="visually-hidden">Cargando...</span>
                         </div>
-                        <p className="mt-2">Cargando alimentos...</p>
+                        <p className="mt-2">Buscando...</p>
                     </div>
                 ) : (
                     <div className="row g-4">
-                        {filtrados.length > 0 ? (
-                            filtrados.map(a => {
+                        {alimentos.length > 0 ? (
+                            alimentos.map(a => {
                                 const infoVenc = verificarVencimiento(a.vencimiento_alimento);
                                 return (
                                     <div className="col-md-4 col-lg-3" key={a.id}>
@@ -193,35 +237,98 @@ const AlimentosPage = () => {
                             })
                         ) : (
                             <div className="col-12 text-center text-white py-5">
-                                <h3>No hay alimentos registrados</h3>
-                                <p>Hacé clic en "+ Nuevo" para agregar el primero</p>
+                                <h3>No se encontraron resultados</h3>
                             </div>
                         )}
                     </div>
                 )}
 
-                {/* PAGINACIÓN */}
-                <div className="d-flex justify-content-center align-items-center gap-3 mt-5 pb-4">
-                    <button
-                        className="btn btn-light rounded-circle shadow-sm"
-                        disabled={pagina === 1}
-                        onClick={() => setPagina(pagina - 1)}
-                    >
-                        <FontAwesomeIcon icon={faArrowLeft} />
-                    </button>
-                    <span className="badge bg-white text-dark px-3 py-2 rounded-pill shadow-sm fw-bold">
-                        Página {pagina}
-                    </span>
-                    <button
-                        className="btn btn-light rounded-circle shadow-sm"
-                        disabled={alimentos.length < limite}
-                        onClick={() => setPagina(pagina + 1)}
-                    >
-                        <FontAwesomeIcon icon={faArrowRight} />
-                    </button>
-                </div>
+                {/* PAGINACIÓN: Solo visible si no se está buscando */}
+                {busqueda.trim() === '' && (
+                    <div className="d-flex justify-content-center align-items-center gap-3 mt-5 pb-4">
+                        <button
+                            className="btn btn-light rounded-circle shadow-sm"
+                            disabled={pagina === 1}
+                            onClick={() => setPagina(pagina - 1)}
+                        >
+                            <FontAwesomeIcon icon={faArrowLeft} />
+                        </button>
+                        <span className="badge bg-white text-dark px-3 py-2 rounded-pill shadow-sm fw-bold">
+                            Página {pagina}
+                        </span>
+                        <button
+                            className="btn btn-light rounded-circle shadow-sm"
+                            disabled={alimentos.length < limite}
+                            onClick={() => setPagina(pagina + 1)}
+                        >
+                            <FontAwesomeIcon icon={faArrowRight} />
+                        </button>
+                    </div>
+                )}
             </div>
 
+            {/* MODAL PAPELERA */}
+            {showPapelera && (
+                <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1070 }}>
+                    <div className="modal-dialog modal-lg modal-dialog-centered">
+                        <div className="modal-content border-0 rounded-4 shadow-lg p-0">
+                            <div className="modal-header bg-danger text-white rounded-top-4 p-3">
+                                <h5 className="modal-title fw-bold">
+                                    <FontAwesomeIcon icon={faHistory} className="me-2" /> Papelera de Alimentos
+                                </h5>
+                                <button type="button" className="btn-close btn-close-white" onClick={() => setShowPapelera(false)}></button>
+                            </div>
+                            <div className="modal-body p-0">
+                                <div className="table-responsive" style={{ maxHeight: '450px' }}>
+                                    <table className="table table-hover mb-0">
+                                        <thead className="table-light sticky-top">
+                                            <tr>
+                                                <th>Nombre</th>
+                                                <th>Precio</th>
+                                                <th>Borrado por</th>
+                                                <th>Fecha</th>
+                                                <th className="text-center">Restaurar</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {alimentosEliminados.length > 0 ? (
+                                                alimentosEliminados.map(ali => (
+                                                    <tr key={ali.id}>
+                                                        <td>
+                                                            <div className="fw-bold">{ali.nombre}</div>
+                                                            <small className="text-muted text-uppercase" style={{ fontSize: '10px' }}>Stock: {ali.stock}</small>
+                                                        </td>
+                                                        <td className="text-success fw-bold">${ali.precio_venta}</td>
+                                                        <td><span className="badge bg-light text-dark">{ali.responsable_borrado || 'Admin'}</span></td>
+                                                        <td style={{ fontSize: '13px' }}>{new Date(ali.fecha_borrado).toLocaleString()}</td>
+                                                        <td className="text-center">
+                                                            <button 
+                                                                className="btn btn-sm btn-success rounded-circle shadow-sm"
+                                                                onClick={() => restaurarAlimento(ali.id)}
+                                                            >
+                                                                <FontAwesomeIcon icon={faTrashRestore} />
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            ) : (
+                                                <tr>
+                                                    <td colSpan="5" className="text-center py-5 text-muted">La papelera está vacía</td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div className="modal-footer border-0 p-3">
+                                <button className="btn btn-dark rounded-pill px-4 fw-bold shadow-sm" onClick={() => setShowPapelera(false)}>CERRAR</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* DETALLES */}
             {showDetalle && itemSeleccionado && (
                 <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1060 }}>
                     <div className="modal-dialog modal-dialog-centered">
@@ -277,7 +384,6 @@ const AlimentosPage = () => {
                         cargarAlimentos();
                     } catch (err) {
                         console.error('Error al guardar:', err);
-                        alert('Error al guardar el alimento');
                     }
                 }}
                 datosEdicion={datosEdicion}

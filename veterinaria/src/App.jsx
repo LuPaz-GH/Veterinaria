@@ -18,6 +18,7 @@ import DueñoDashboard from './pages/DueñoDashboard';
 import GestionEmpleados from './pages/GestionEmpleados';
 import AuditoriaPage from './pages/AuditoriaPage';
 import ResetPassword from './component/ResetPassword';
+import ConfiguracionPage from './pages/ConfiguracionPage';   // ← NUEVO
 
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
@@ -99,6 +100,12 @@ const AppContent = () => {
           <Route 
             path="/auditoria" 
             element={user?.rol === 'admin' ? <AuditoriaPage user={user} /> : <Navigate to="/home" replace />} 
+          />
+
+          {/* NUEVA RUTA - Configuración de Precios (solo para el dueño) */}
+          <Route 
+            path="/configuracion" 
+            element={user?.rol === 'admin' || user?.rol === 'dueno' ? <ConfiguracionPage /> : <Navigate to="/home" replace />} 
           />
 
           <Route path="/reset-password" element={<ResetPassword />} />

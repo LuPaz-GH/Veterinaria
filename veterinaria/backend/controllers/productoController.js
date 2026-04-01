@@ -25,7 +25,7 @@ const productoController = {
         }
     },
 
-    // 2. CREAR: Aquí se asegura de capturar el nombre del dueño/a
+    // 2. CREAR: Aquí se asegura de capturar el nombre del usuario responsable
     crearProducto: async (req, res) => {
         try {
             const usuarioId = req.user ? req.user.id : null;
@@ -78,7 +78,31 @@ const productoController = {
         }
     },
 
-    // 5. El Historial que lee la dueña
+    // NUEVO: Obtener productos de la papelera por categoría (Ej: Petshop)
+    getPapeleraPorCategoria: async (req, res) => {
+        try {
+            const { categoria } = req.params;
+            const productos = await productoService.getEliminadosByCategoria(categoria);
+            res.json(productos);
+        } catch (err) {
+            console.error("❌ Error en getPapeleraPorCategoria:", err);
+            res.status(500).json({ error: 'Error al obtener papelera', detalle: err.message });
+        }
+    },
+
+    // NUEVO: Restaurar producto de la papelera
+    restaurarProducto: async (req, res) => {
+        try {
+            const { id } = req.params;
+            await productoService.restaurar(id);
+            res.json({ success: true, message: 'Producto restaurado correctamente' });
+        } catch (err) {
+            console.error("❌ Error en restaurarProducto:", err);
+            res.status(500).json({ error: 'Error al restaurar producto', detalle: err.message });
+        }
+    },
+
+    // 5. El Historial de auditoría
     getAuditoria: async (req, res) => {
         try {
             const filtros = {

@@ -4,7 +4,8 @@ import {
     faCalendarCheck, faPlus, faPencilAlt, faTrash, faSearch, 
     faStethoscope, faClock, faCalendarDay, faFilePdf, faFileExcel, 
     faPaw, faTimes, faInfoCircle, faUser, faNotesMedical, faTag, faWeightHanging, faClipboardList, faPrescriptionBottleMedical,
-    faCheckCircle, faCalendarAlt, faPrint, faSpinner
+    faCheckCircle, faCalendarAlt, faPrint, faSpinner, faTrashRestore,
+    faChevronLeft, faChevronRight, faHistory, faArrowLeft
 } from '@fortawesome/free-solid-svg-icons';
 import ConfirmModal from '../component/ConfirmModal';
 import api from '../services/api';
@@ -16,19 +17,21 @@ import autoTable from 'jspdf-autotable';
 
 const TurnosPage = ({ user }) => {
     const [turnos, setTurnos] = useState([]);
+    const [turnosEliminados, setTurnosEliminados] = useState([]);
     const [mascotas, setMascotas] = useState([]);
     const [busqueda, setBusqueda] = useState('');
     
-    // Inicia en 'hoy' para enfoque directo
+    const [showPapelera, setShowPapelera] = useState(false);
     const [filtroFecha, setFiltroFecha] = useState('hoy'); 
     const [fechaPersonalizada, setFechaPersonalizada] = useState('');
+    
+    // ESTADOS DE PAGINACIÓN
     const [pagina, setPagina] = useState(1);
     const [totalPaginas, setTotalPaginas] = useState(1);
-    const limite = 200; 
+    const limite = 12;
 
     const [showModal, setShowModal] = useState(false);
     const [showAtencion, setShowAtencion] = useState(false);
-    const [showDetalle, setShowDetalle] = useState(false); 
     const [showSuccess, setShowSuccess] = useState(false);
     const [turnoSeleccionado, setTurnoSeleccionado] = useState(null);
     const [datosEdicion, setDatosEdicion] = useState(null);
@@ -44,11 +47,7 @@ const TurnosPage = ({ user }) => {
     };
 
     const [nuevoTurno, setNuevoTurno] = useState({
-        mascota_id: '', 
-        dueno_id: '', 
-        fecha: '', 
-        tipo: 'consulta', 
-        motivo: ''
+        mascota_id: '', dueno_id: '', fecha: '', tipo: 'consulta', motivo: ''
     });
 
     const [datosAtencion, setDatosAtencion] = useState({
@@ -56,7 +55,6 @@ const TurnosPage = ({ user }) => {
     });
 
     const cargarDatos = async () => {
-        // CORRECCIÓN: Si es personalizado y no hay fecha, limpiar y salir
         if (filtroFecha === 'personalizado' && !fechaPersonalizada) {
             setTurnos([]);
             setLoading(false);
@@ -91,15 +89,42 @@ const TurnosPage = ({ user }) => {
             ]);
 
             setTurnos(resT.data.data || []);
-            setTotalPaginas(Math.ceil(resT.data.total / limite) || 1);
+            setTotalPaginas(resT.data.totalPaginas || 1);
             setMascotas(Array.isArray(resM.data) ? resM.data : []);
         } catch (err) { 
-            console.error("Error cargando datos:", err);
             mostrarAviso("Error al conectar con el servidor", "error");
         } finally {
             setLoading(false);
         }
     };
+
+    const cargarPapelera = async () => {
+        try {
+            const res = await api.get('/turnos/papelera');
+            setTurnosEliminados(res.data || []);
+        } catch (err) {
+            console.error("Error al cargar papelera");
+        }
+    };
+
+    const restaurarTurno = async (id) => {
+        try {
+            await api.put(`/turnos/restaurar/${id}`);
+            mostrarAviso("✅ Turno restaurado con éxito");
+            cargarPapelera();
+            cargarDatos();
+        } catch (err) {
+            mostrarAviso("❌ Error al restaurar el turno", "error");
+        }
+    };
+
+    useEffect(() => { 
+        cargarDatos(); 
+    }, [pagina, filtroFecha, fechaPersonalizada]);
+
+    useEffect(() => {
+        if (showPapelera) cargarPapelera();
+    }, [showPapelera]);
 
     const handleCambioFiltro = (nuevoValor) => {
         setFiltroFecha(nuevoValor);
@@ -107,41 +132,15 @@ const TurnosPage = ({ user }) => {
         if (nuevoValor !== 'personalizado') setFechaPersonalizada('');
     };
 
-    useEffect(() => { 
-        cargarDatos(); 
-    }, [pagina, filtroFecha, fechaPersonalizada]);
-
-    // --- FILTRADO ESTRICTO Y ORDENAMIENTO ---
     const obtenerTurnosProcesados = () => {
-        const hoy = new Date();
-        hoy.setHours(0,0,0,0);
-        const diaSem = hoy.getDay();
-        const lunes = new Date(hoy);
-        lunes.setDate(hoy.getDate() - (diaSem === 0 ? 6 : diaSem - 1));
-        const domingo = new Date(lunes);
-        domingo.setDate(lunes.getDate() + 6);
-        domingo.setHours(23,59,59);
-
         return turnos.filter(t => {
-            const fechaT = new Date(t.fecha);
             const coincideBusqueda = (t.mascota_nombre || '').toLowerCase().includes(busqueda.toLowerCase()) ||
                                      (t.dueno_nombre || '').toLowerCase().includes(busqueda.toLowerCase());
-            
-            if (!coincideBusqueda) return false;
-
-            if (filtroFecha === 'hoy') {
-                return fechaT.toISOString().split('T')[0] === hoy.toISOString().split('T')[0];
-            } else if (filtroFecha === 'semana') {
-                return fechaT >= lunes && fechaT <= domingo;
-            } else if (filtroFecha === 'personalizado') {
-                // Solo mostrar si coincide con la fecha elegida
-                return fechaPersonalizada && t.fecha.split('T')[0] === fechaPersonalizada;
-            }
-            return true;
+            return coincideBusqueda;
         }).sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
     };
 
-    const agruparPorFecha = (lista) => {
+    const turnosAgrupados = (lista) => {
         const grupos = {};
         lista.forEach(t => {
             const fechaSolo = t.fecha.split('T')[0];
@@ -151,7 +150,37 @@ const TurnosPage = ({ user }) => {
         return grupos;
     };
 
-    const turnosAgrupados = agruparPorFecha(obtenerTurnosProcesados());
+    const turnosParaMostrar = turnosAgrupados(obtenerTurnosProcesados());
+
+    const exportarExcel = () => {
+        const dataParaExcel = obtenerTurnosProcesados().map(t => ({
+            Fecha: new Date(t.fecha).toLocaleDateString(),
+            Hora: new Date(t.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            Mascota: t.mascota_nombre,
+            Dueño: t.dueno_nombre,
+            Tipo: t.tipo.toUpperCase(),
+            Motivo: t.motivo || ''
+        }));
+        const ws = XLSX.utils.json_to_sheet(dataParaExcel);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Agenda");
+        XLSX.writeFile(wb, `Agenda_Turnos_${filtroFecha}.xlsx`);
+    };
+
+    const exportarPDFGeneral = () => {
+        const doc = new jsPDF();
+        doc.text(`Reporte de Agenda - ${filtroFecha.toUpperCase()}`, 14, 15);
+        const columns = ["Fecha", "Hora", "Mascota", "Dueño", "Tipo"];
+        const rows = obtenerTurnosProcesados().map(t => [
+            new Date(t.fecha).toLocaleDateString(),
+            new Date(t.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            t.mascota_nombre,
+            t.dueno_nombre,
+            t.tipo.toUpperCase()
+        ]);
+        autoTable(doc, { head: [columns], body: rows, startY: 20, theme: 'striped' });
+        doc.save(`Agenda_Turnos_${filtroFecha}.pdf`);
+    };
 
     const formatearFechaTitulo = (fechaStr) => {
         const dias = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -162,12 +191,10 @@ const TurnosPage = ({ user }) => {
         return `${pref}${dias[fecha.getDay()]} ${fecha.getDate()}/${fecha.getMonth() + 1}`;
     };
 
-    // --- EXPORTAR TICKET ---
     const exportarTicketTurno = (t) => {
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [80, 150] });
         const img = new Image();
         img.src = '/logo.png'; 
-
         const generarPDF = (logo = null) => {
             doc.setFillColor(106, 17, 203); 
             doc.rect(0, 0, 80, 32, 'F');
@@ -212,12 +239,13 @@ const TurnosPage = ({ user }) => {
     };
 
     const handleConfirmarEliminar = async () => {
+        if (!idToDelete) return;
         try {
             await api.delete(`/turnos/${idToDelete}`);
             setShowConfirm(false); setIdToDelete(null);
-            cargarDatos();
-            mostrarAviso("Turno eliminado");
-        } catch (err) { mostrarAviso("Error", "error"); }
+            await cargarDatos(); 
+            mostrarAviso("✅ Turno movido a la papelera", "success");
+        } catch (err) { mostrarAviso("❌ Error al mover a la papelera", "error"); }
     };
 
     const finalizarAtencion = async (e) => {
@@ -237,11 +265,8 @@ const TurnosPage = ({ user }) => {
     const prepararEdicion = (t) => {
         setDatosEdicion(t);
         setNuevoTurno({
-            mascota_id: t.mascota_id,
-            dueno_id: t.dueno_id,
-            fecha: t.fecha.substring(0, 16),
-            tipo: t.tipo,
-            motivo: t.motivo || ''
+            mascota_id: t.mascota_id, dueno_id: t.dueno_id,
+            fecha: t.fecha.substring(0, 16), tipo: t.tipo, motivo: t.motivo || ''
         });
         setShowModal(true);
     };
@@ -253,69 +278,151 @@ const TurnosPage = ({ user }) => {
                     <h1 className="text-white fw-bold" style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.5)' }}>
                         <FontAwesomeIcon icon={faCalendarCheck} className="me-3" /> Agenda Veterinaria
                     </h1>
-                    <button className="btn btn-primary rounded-pill px-4 fw-bold shadow" onClick={() => { setDatosEdicion(null); setShowModal(true); }}>
-                        <FontAwesomeIcon icon={faPlus} className="me-2" /> Nuevo Turno
-                    </button>
+                    <div className="d-flex gap-2 align-items-center">
+                        {/* BOTONES EXPORTAR */}
+                        <button className="btn btn-danger rounded-pill px-3 fw-bold shadow-sm" onClick={exportarPDFGeneral}>
+                            <FontAwesomeIcon icon={faFilePdf} className="me-1" /> PDF
+                        </button>
+                        <button className="btn btn-success rounded-pill px-3 fw-bold shadow-sm" onClick={exportarExcel}>
+                            <FontAwesomeIcon icon={faFileExcel} className="me-1" /> EXCEL
+                        </button>
+                        
+                        {/* BOTÓN PAPELERA REDISEÑADO */}
+                        <button 
+                            className="btn rounded-pill px-4 fw-bold shadow-lg text-white" 
+                            onClick={() => setShowPapelera(true)}
+                            style={{
+                                backgroundColor: '#e74c3c', 
+                                border: '2px solid rgba(255,255,255,0.4)',
+                                transition: 'all 0.3s ease',
+                                display: 'flex', alignItems: 'center', gap: '8px'
+                            }}
+                            onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#c0392b'}
+                            onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#e74c3c'}
+                        >
+                            <FontAwesomeIcon icon={faTrash} />
+                            <span>Papelera</span>
+                        </button>
+                        
+                        <button className="btn btn-primary rounded-pill px-4 fw-bold shadow" onClick={() => { setDatosEdicion(null); setShowModal(true); }}>
+                            <FontAwesomeIcon icon={faPlus} className="me-2" /> Nuevo Turno
+                        </button>
+                    </div>
                 </header>
 
                 <div className="mb-5 d-flex gap-3 align-items-center flex-wrap">
                     <div className="input-group shadow-sm rounded-pill overflow-hidden bg-white w-auto" style={{minWidth: '350px'}}>
                         <span className="input-group-text bg-transparent border-0 ps-3"><FontAwesomeIcon icon={faSearch} className="text-success" /></span>
-                        <input type="text" className="form-control border-0 py-2" placeholder="Buscar..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
+                        <input type="text" className="form-control border-0 py-2" placeholder="Buscar..." value={busqueda} onChange={(e) => {setBusqueda(e.target.value); setPagina(1);}} />
                     </div>
                     <select value={filtroFecha} onChange={(e) => handleCambioFiltro(e.target.value)} className="form-select rounded-pill w-auto shadow-sm">
                         <option value="hoy">Hoy</option>
                         <option value="semana">Esta semana</option>
                         <option value="personalizado">Personalizado</option>
                     </select>
-                    {/* CALENDARIO RECUPERADO */}
-                    {filtroFecha === 'personalizado' && (
-                        <input type="date" value={fechaPersonalizada} onChange={(e) => { setFechaPersonalizada(e.target.value); setPagina(1); }} className="form-control rounded-pill shadow-sm w-auto" />
-                    )}
                 </div>
 
                 {loading ? <div className="text-center text-white py-5"><FontAwesomeIcon icon={faSpinner} spin size="3x" /></div> : (
-                    (filtroFecha === 'personalizado' && !fechaPersonalizada) ? (
-                        <div className="text-center text-white py-5"><h3>Elegí una fecha para ver los turnos</h3></div>
-                    ) : Object.keys(turnosAgrupados).length === 0 ? (
+                    Object.keys(turnosParaMostrar).length === 0 ? (
                         <div className="text-center text-white py-5"><h3>No hay turnos registrados</h3></div>
                     ) : (
-                        Object.keys(turnosAgrupados).map(fecha => (
-                            <div key={fecha} className="mb-5">
-                                <div className="d-flex align-items-center mb-4">
-                                    <h4 className="text-white fw-bold m-0 p-2 px-4 rounded-pill shadow-sm" style={{ background: 'rgba(106, 17, 203, 0.9)', backdropFilter: 'blur(5px)' }}>
-                                        <FontAwesomeIcon icon={faCalendarDay} className="me-2" /> {formatearFechaTitulo(fecha)}
-                                    </h4>
-                                    <div className="flex-grow-1 ms-3 border-bottom border-white border-2 opacity-25"></div>
-                                </div>
-                                <div className="row g-4">
-                                    {turnosAgrupados[fecha].map(t => (
-                                        <div className="col-md-6 col-lg-3" key={t.id}>
-                                            <div className="card border-0 shadow-lg p-3 rounded-4 transition-card" style={{ background: 'rgba(255, 255, 255, 0.95)' }}>
-                                                <div className="d-flex justify-content-between mb-2">
-                                                    <h5 className="fw-bold text-primary mb-0">{t.mascota_nombre}</h5>
-                                                    <span className="badge bg-info text-dark shadow-sm">{t.tipo.toUpperCase()}</span>
-                                                </div>
-                                                <hr className="my-2 opacity-25" />
-                                                <p className="small mb-1"><FontAwesomeIcon icon={faUser} className="me-2 text-muted" /> {t.dueno_nombre}</p>
-                                                <p className="small mb-3"><FontAwesomeIcon icon={faClock} className="me-2 text-muted" /> {new Date(t.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} hs</p>
-                                                <div className="d-flex gap-2">
-                                                    {t.estado === 'pendiente' && <button className="btn btn-success btn-sm rounded-pill flex-grow-1 fw-bold shadow-sm" onClick={() => { setTurnoSeleccionado(t); setShowAtencion(true); }}>ATENDER</button>}
-                                                    <button className="btn btn-outline-danger btn-sm rounded-circle border shadow-sm" onClick={() => exportarTicketTurno(t)}><FontAwesomeIcon icon={faPrint} /></button>
-                                                    <button className="btn btn-white btn-sm rounded-circle border shadow-sm" onClick={() => prepararEdicion(t)}><FontAwesomeIcon icon={faPencilAlt} className="text-primary" /></button>
-                                                    <button className="btn btn-white btn-sm rounded-circle border shadow-sm" onClick={() => { setIdToDelete(t.id); setShowConfirm(true); }}><FontAwesomeIcon icon={faTrash} className="text-danger" /></button>
+                        <>
+                            {Object.keys(turnosParaMostrar).map(fecha => (
+                                <div key={fecha} className="mb-5">
+                                    <div className="d-flex align-items-center mb-4">
+                                        <h4 className="text-white fw-bold m-0 p-2 px-4 rounded-pill shadow-sm" style={{ background: 'rgba(106, 17, 203, 0.9)', backdropFilter: 'blur(5px)' }}>
+                                            <FontAwesomeIcon icon={faCalendarDay} className="me-2" /> {formatearFechaTitulo(fecha)}
+                                        </h4>
+                                        <div className="flex-grow-1 ms-3 border-bottom border-white border-2 opacity-25"></div>
+                                    </div>
+                                    <div className="row g-4">
+                                        {turnosParaMostrar[fecha].map(t => (
+                                            <div className="col-md-6 col-lg-3" key={t.id}>
+                                                <div className="card border-0 shadow-lg p-3 rounded-4" style={{ background: 'rgba(255, 255, 255, 0.95)' }}>
+                                                    <div className="d-flex justify-content-between mb-2">
+                                                        <h5 className="fw-bold text-primary mb-0">{t.mascota_nombre}</h5>
+                                                        <span className="badge bg-info text-dark shadow-sm">{t.tipo.toUpperCase()}</span>
+                                                    </div>
+                                                    <hr className="my-2 opacity-25" />
+                                                    <p className="small mb-1"><FontAwesomeIcon icon={faUser} className="me-2 text-muted" /> {t.dueno_nombre}</p>
+                                                    <p className="small mb-3"><FontAwesomeIcon icon={faClock} className="me-2 text-muted" /> {new Date(t.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} hs</p>
+                                                    <div className="d-flex gap-2">
+                                                        {t.estado === 'pendiente' && <button className="btn btn-success btn-sm rounded-pill flex-grow-1 fw-bold shadow-sm" onClick={() => { setTurnoSeleccionado(t); setShowAtencion(true); }}>ATENDER</button>}
+                                                        <button className="btn btn-outline-danger btn-sm rounded-circle border shadow-sm" onClick={() => exportarTicketTurno(t)}><FontAwesomeIcon icon={faPrint} /></button>
+                                                        <button className="btn btn-white btn-sm rounded-circle border shadow-sm" onClick={() => prepararEdicion(t)}><FontAwesomeIcon icon={faPencilAlt} className="text-primary" /></button>
+                                                        <button className="btn btn-white btn-sm rounded-circle border shadow-sm" onClick={() => { setIdToDelete(t.id); setShowConfirm(true); }}><FontAwesomeIcon icon={faTrash} className="text-danger" /></button>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        ))}
+                                    </div>
                                 </div>
-                            </div>
-                        ))
+                            ))}
+
+                            {/* CONTROLES DE PAGINACIÓN */}
+                            {totalPaginas > 1 && (
+                                <div className="d-flex justify-content-center align-items-center gap-3 mt-4 mb-5">
+                                    <button className="btn btn-light rounded-circle shadow-sm" onClick={() => setPagina(p => Math.max(1, p - 1))} disabled={pagina === 1}>
+                                        <FontAwesomeIcon icon={faChevronLeft} />
+                                    </button>
+                                    <div className="bg-white px-4 py-2 rounded-pill shadow-sm fw-bold">Página {pagina} de {totalPaginas}</div>
+                                    <button className="btn btn-light rounded-circle shadow-sm" onClick={() => setPagina(p => Math.min(totalPaginas, p + 1))} disabled={pagina === totalPaginas}>
+                                        <FontAwesomeIcon icon={faChevronRight} />
+                                    </button>
+                                </div>
+                            )}
+                        </>
                     )
                 )}
             </div>
 
-            {/* MODALES ... */}
+            {/* MODAL PAPELERA (DISEÑO IMAGEN) */}
+            {showPapelera && (
+                <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 3000 }}>
+                    <div className="modal-dialog modal-lg modal-dialog-centered">
+                        <div className="modal-content border-0" style={{ borderRadius: '40px', overflow: 'hidden' }}>
+                            <div className="text-center p-4 text-white" style={{ backgroundColor: '#D82F43' }}>
+                                <h3 className="fw-bold m-0 text-uppercase"><FontAwesomeIcon icon={faHistory} className="me-2" /> Papelera de Reciclaje</h3>
+                            </div>
+                            <div className="modal-body p-4 bg-white">
+                                <div className="table-responsive">
+                                    <table className="table table-hover align-middle">
+                                        <thead className="bg-light">
+                                            <tr>
+                                                <th>Nombre</th><th>Tipo</th><th className="text-center">Borrado por</th><th>Fecha</th><th className="text-center">Restaurar</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {turnosEliminados.length === 0 ? (
+                                                <tr><td colSpan="5" className="text-center py-5 text-muted">La papelera está vacía</td></tr>
+                                            ) : (
+                                                turnosEliminados.map(t => (
+                                                    <tr key={t.id}>
+                                                        <td><div className="fw-bold">{t.mascota_nombre}</div><small className="text-muted">Dueño: {t.dueno_nombre}</small></td>
+                                                        <td><span className="badge rounded-pill bg-primary px-3 py-2 text-uppercase">Turno</span></td>
+                                                        <td className="text-center"><span className="badge bg-light text-dark border px-3 py-2" style={{ borderRadius: '8px' }}>{t.responsable_borrado || 'Sistema'}</span></td>
+                                                        <td className="small">{new Date(t.fecha_borrado).toLocaleString('es-AR')}</td>
+                                                        <td className="text-center">
+                                                            <button className="btn btn-success rounded-circle shadow-sm" style={{ width: '40px', height: '40px' }} onClick={() => restaurarTurno(t.id)}>
+                                                                <FontAwesomeIcon icon={faTrashRestore} />
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div className="modal-footer justify-content-center border-0 pb-4 bg-white">
+                                <button className="btn text-white px-5 py-2 fw-bold shadow" style={{ backgroundColor: '#2C3E50', borderRadius: '25px' }} onClick={() => setShowPapelera(false)}>CERRAR</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODALES EXTRAS */}
             {showModal && (
                 <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 2000 }}>
                     <div className="modal-dialog modal-dialog-centered">
@@ -367,8 +474,7 @@ const TurnosPage = ({ user }) => {
                                             <div className="input-group">
                                                 <input type="number" step="0.01" className="form-control" value={datosAtencion.peso} onChange={(e) => setDatosAtencion({...datosAtencion, peso: e.target.value})} required />
                                                 <select className="form-select" style={{ maxWidth: '80px' }} value={datosAtencion.unidad} onChange={(e) => setDatosAtencion({...datosAtencion, unidad: e.target.value})}>
-                                                    <option value="kg">kg</option>
-                                                    <option value="gr">gr</option>
+                                                    <option value="kg">kg</option><option value="gr">gr</option>
                                                 </select>
                                             </div>
                                         </div>
@@ -407,7 +513,11 @@ const TurnosPage = ({ user }) => {
                 </div>
             )}
 
-            <ConfirmModal show={showConfirm} onClose={() => setShowConfirm(false)} onConfirm={handleConfirmarEliminar} title="¿Eliminar Turno?" message="Esta acción es definitiva." />
+            <ConfirmModal 
+                show={showConfirm} onClose={() => setShowConfirm(false)} onConfirm={handleConfirmarEliminar} 
+                title="¿Mover a la papelera?" message="El turno se moverá a la papelera y se podrá restaurar más tarde." 
+                confirmText="Sí, mover a papelera" cancelText="Cancelar" confirmColor="danger" 
+            />
         </div>
     );
 };

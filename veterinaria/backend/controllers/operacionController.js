@@ -163,11 +163,32 @@ const operacionController = {
 
     eliminarTurno: async (req, res) => {
         try {
-            await operacionService.eliminarTurno(req.params.id);
+            const usuarioId = req.user?.id || null;
+            await operacionService.eliminarTurno(req.params.id, usuarioId);
             res.json({ success: true });
         } catch (err) {
             console.error('Error al eliminar turno:', err);
             res.status(500).json({ error: 'Error al eliminar turno' });
+        }
+    },
+
+    getTurnosPapelera: async (req, res) => {
+        try {
+            const turnos = await operacionService.getTurnosEliminados();
+            res.json(turnos);
+        } catch (err) {
+            console.error('Error al obtener papelera de turnos:', err);
+            res.status(500).json({ error: 'Error al cargar la papelera' });
+        }
+    },
+
+    restaurarTurno: async (req, res) => {
+        try {
+            await operacionService.restaurarTurno(req.params.id);
+            res.json({ success: true, message: 'Turno restaurado correctamente' });
+        } catch (err) {
+            console.error('Error al restaurar turno:', err);
+            res.status(500).json({ error: 'Error al restaurar turno' });
         }
     },
 
@@ -204,7 +225,8 @@ const operacionController = {
 
     eliminarHistorial: async (req, res) => {
         try {
-            await operacionService.eliminarHistorial(req.params.id);
+            const usuarioId = req.user?.id || null;
+            await operacionService.eliminarHistorial(req.params.id, usuarioId);
             res.json({ success: true });
         } catch (err) {
             console.error('Error al eliminar historial:', err);
@@ -245,11 +267,33 @@ const operacionController = {
 
     eliminarMovimiento: async (req, res) => {
         try {
-            await operacionService.eliminarMovimiento(req.params.id);
+            const usuarioId = req.user?.id || null;
+            await operacionService.eliminarMovimiento(req.params.id, usuarioId);
             res.json({ success: true });
         } catch (err) {
             console.error('Error al eliminar movimiento:', err);
             res.status(500).json({ error: 'Error al eliminar movimiento' });
+        }
+    },
+
+    // --- NUEVAS FUNCIONES PARA PAPELERA DE CAJA ---
+    getPapeleraCaja: async (req, res) => {
+        try {
+            const borrados = await operacionService.getMovimientosCajaBorrados();
+            res.json(borrados);
+        } catch (err) {
+            console.error('Error al obtener papelera de caja:', err);
+            res.status(500).json({ error: 'Error al obtener papelera' });
+        }
+    },
+
+    restaurarMovimientoCaja: async (req, res) => {
+        try {
+            await operacionService.restaurarMovimientoCaja(req.params.id);
+            res.json({ success: true, message: 'Movimiento restaurado' });
+        } catch (err) {
+            console.error('Error al restaurar movimiento de caja:', err);
+            res.status(500).json({ error: 'Error al restaurar' });
         }
     },
 
@@ -274,10 +318,7 @@ const operacionController = {
         }
     },
 
-    // =============================================
     // GESTIÓN DE EMPLEADOS
-    // =============================================
-
     getEmpleados: async (req, res) => {
         try {
             const empleados = await operacionService.getEmpleados();

@@ -30,7 +30,8 @@ const duenoRouter = require('./routers/duenoRouter');
 const productoRouter = require('./routers/productoRouter'); 
 const operacionRouter = require('./routers/operacionRouter'); 
 const recuperacionRouter = require('./routers/recuperacionRouter');
-const auditoriaRouter = require('./routers/auditoriaRouter'); // ✅ AGREGADO: Router de auditoría unificada
+const auditoriaRouter = require('./routers/auditoriaRouter'); 
+const servicioRouter = require('./routers/servicioRouter');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -44,7 +45,7 @@ app.use(cors({
 
 app.use(express.json());
 
-// ✅ RUTA DE LOGIN - PÚBLICA (maneja texto plano Y bcrypt)
+//  RUTA DE LOGIN - PÚBLICA
 app.post('/api/login', async (req, res) => {
   const { usuario, password } = req.body;
 
@@ -67,12 +68,10 @@ app.post('/api/login', async (req, res) => {
     const user = rows[0];
     let match = false;
 
-    // Si la contraseña en BD es un hash bcrypt (empieza con $2b$)
     if (user.password.startsWith('$2b$')) {
       console.log('[LOGIN] Detectado hash bcrypt → usando bcrypt.compare');
       match = await bcrypt.compare(password, user.password);
     } else {
-      // Si es texto plano (usuarios viejos)
       console.log('[LOGIN] Contraseña en texto plano → comparación directa');
       match = (password === user.password);
     }
@@ -81,7 +80,6 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
     }
 
-    // Generar token
     const token = jwt.sign(
       { id: user.id, nombre: user.nombre, rol: user.rol },
       process.env.JWT_SECRET,
@@ -105,7 +103,8 @@ app.use('/api/empleados', empleadoRouter);
 app.use('/api/duenos', duenoRouter);
 app.use('/api/productos', productoRouter);
 app.use('/api/recuperacion', recuperacionRouter);
-app.use('/api/auditoria', auditoriaRouter); // ✅ AGREGADO: Ruta de auditoría unificada (pública para historial)
+app.use('/api/auditoria', auditoriaRouter); 
+app.use('/api/servicios', servicioRouter);
 
 // Rutas protegidas
 app.use('/api', authMiddleware, operacionRouter);
@@ -120,11 +119,11 @@ app.listen(port, () => {
   console.log(`🚀 Servidor Malfi corriendo en http://localhost:${port}`);
   console.log(`✅ Permitiendo CORS para puertos 5173 y 5175`);
   console.log('Login mixto: soporta texto plano + bcrypt');
-  console.log('✅ Auditoría unificada: Productos + Estética');
+  console.log('✅ Servicios de Veterinaria y Estética cargados');
   console.log('==============================================');
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`ERROR: El puerto ${port} ya está en uso. Intenta con otro puerto o libera el actual.`);
+    console.error(`ERROR: El puerto ${port} ya está en uso.`);
   } else {
     console.error('Error al iniciar el servidor:', err);
   }

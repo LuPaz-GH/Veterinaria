@@ -28,6 +28,12 @@ router.put('/turnos/:id', authMiddleware, operacionController.actualizarTurno);
 router.delete('/turnos/:id', authMiddleware, operacionController.eliminarTurno);
 router.post('/turnos/:id/atender', authMiddleware, operacionController.atenderConsulta);
 
+// =============================================
+// NUEVAS RUTAS PARA TURNO ELIMINADOS (PAPELERA)
+// =============================================
+router.get('/turnos/papelera', authMiddleware, operacionController.getTurnosPapelera);
+router.put('/turnos/restaurar/:id', authMiddleware, operacionController.restaurarTurno);
+
 // HISTORIAL CLÍNICO
 router.get('/historial/:mascotaId', operacionController.getHistorial);
 router.post('/historial', authMiddleware, operacionController.crearHistorial);
@@ -39,5 +45,9 @@ router.get('/caja', operacionController.getMovimientosCaja);
 router.post('/caja', authMiddleware, operacionController.registrarMovimiento);
 router.put('/caja/:id', authMiddleware, operacionController.actualizarMovimiento); 
 router.delete('/caja/:id', authMiddleware, operacionController.eliminarMovimiento);
+
+// NUEVAS RUTAS PARA PAPELERA DE CAJA (CORREGIDO)
+router.get('/caja-papelera', authMiddleware, operacionController.getPapeleraCaja);
+router.put('/caja/restaurar/:id', authMiddleware, operacionController.restaurarMovimientoCaja);
 
 module.exports = router;

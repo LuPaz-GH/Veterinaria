@@ -7,6 +7,18 @@ const authMiddleware = require('../middleware/auth');
 // 1. RUTA DE AUDITORÍA
 router.get('/auditoria/historial', authMiddleware, productoController.getAuditoria);
 
+// ---------------------------------------------------------
+// RUTAS DE PAPELERA (DEBEN IR ANTES DE LOS DINÁMICOS)
+// ---------------------------------------------------------
+
+// Ruta para obtener productos borrados por categoría (Petshop, Alimentos, etc.)
+router.get('/papelera/:categoria', authMiddleware, productoController.getPapeleraPorCategoria);
+
+// Ruta para restaurar un producto de la papelera
+router.put('/restaurar/:id', authMiddleware, productoController.restaurarProducto);
+
+// ---------------------------------------------------------
+
 // 2. NUEVA RUTA DE BÚSQUEDA
 router.get('/buscar', async (req, res) => {
     try {
@@ -23,7 +35,8 @@ router.get('/buscar', async (req, res) => {
     }
 });
 
-// 3. RUTAS CON PARÁMETROS DINÁMICOS
+// 3. RUTAS CON PARÁMETROS DINÁMICOS (AL FINAL DE LOS GETS)
+// Importante: Esta ruta se movió después de /papelera para evitar conflictos
 router.get('/:categoria', productoController.getPorCategoria);
 
 // 4. RUTAS DE CREACIÓN Y EDICIÓN

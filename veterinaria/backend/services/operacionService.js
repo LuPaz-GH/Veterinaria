@@ -16,8 +16,11 @@ const operacionService = {
 
     getMascotasEliminadas: async () => {
         const [rows] = await pool.query(`
-            SELECT m.*, e.nombre as responsable_borrado
+            SELECT m.*, 
+                   d.nombre AS dueno_nombre,
+                   e.nombre as responsable_borrado
             FROM mascotas m
+            LEFT JOIN duenos d ON m.dueno_id = d.id
             LEFT JOIN empleados e ON m.borrado_por = e.id
             WHERE m.activo = 0
             ORDER BY m.fecha_borrado DESC
@@ -69,7 +72,7 @@ const operacionService = {
             JOIN turnos t ON e.turno_id = t.id
             JOIN mascotas m ON t.mascota_id = m.id
             JOIN duenos d ON t.dueno_id = d.id
-            WHERE m.activo = 1 AND d.activo = 1
+            WHERE m.activo = 1 AND d.activo = 1 AND e.fecha_borrado IS NULL AND t.fecha_borrado IS NULL
         `;
         const params = [];
         const conditions = [];
@@ -84,7 +87,7 @@ const operacionService = {
 
         const [rows] = await pool.query(sql, params);
 
-        const countSql = `SELECT COUNT(*) as total FROM estetica e JOIN turnos t ON e.turno_id = t.id JOIN mascotas m ON t.mascota_id = m.id WHERE m.activo = 1` +
+        const countSql = `SELECT COUNT(*) as total FROM estetica e JOIN turnos t ON e.turno_id = t.id JOIN mascotas m ON t.mascota_id = m.id WHERE m.activo = 1 AND e.fecha_borrado IS NULL AND t.fecha_borrado IS NULL` +
             (conditions.length > 0 ? ' AND ' + conditions.join(' AND ') : '');
         const [totalResult] = await pool.query(countSql, params.slice(0, -2));
 
@@ -124,7 +127,7 @@ const operacionService = {
             const fechaHora = hora ? `${fecha} ${hora}:00` : `${fecha} 00:00:00`;
 
             const [existentes] = await connection.query(
-                `SELECT t.id FROM turnos t JOIN estetica e ON e.turno_id = t.id WHERE t.fecha = ? AND t.tipo = 'estetica' AND t.estado NOT IN ('cancelado', 'realizado')`,
+                `SELECT t.id FROM turnos t JOIN estetica e ON e.turno_id = t.id WHERE t.fecha = ? AND t.tipo = 'estetica' AND t.estado NOT IN ('cancelado', 'realizado') AND t.fecha_borrado IS NULL AND e.fecha_borrado IS NULL`,
                 [fechaHora]
             );
 
@@ -198,8 +201,16 @@ const operacionService = {
             await connection.beginTransaction();
             const [estetica] = await connection.query('SELECT turno_id FROM estetica WHERE id = ?', [id]);
             if (estetica[0]) {
-                await connection.query('DELETE FROM estetica WHERE id = ?', [id]);
-                await connection.query('DELETE FROM turnos WHERE id = ?', [estetica[0].turno_id]);
+                // SOFT DELETE en estetica
+                await connection.query(
+                    'UPDATE estetica SET fecha_borrado = NOW(), borrado_por = ? WHERE id = ?',
+                    [usuarioId, id]
+                );
+                // SOFT DELETE en el turno asociado
+                await connection.query(
+                    'UPDATE turnos SET fecha_borrado = NOW(), borrado_por = ? WHERE id = ?',
+                    [usuarioId, estetica[0].turno_id]
+                );
             }
             await connection.commit();
         } catch (e) {
@@ -210,9 +221,11 @@ const operacionService = {
         }
     },
 
-    // 3. Turnos Generales
+    // 3. Turnos Generales (CORREGIDO PARA PAGINACIÓN REAL)
     getTurnos: async (query = {}) => {
-        const { fecha, pagina = 1, limite = 20, soloPendientes = 'true' } = query;
+        const { fecha, pagina = 1, limite = 12, soloPendientes = 'true' } = query;
+        const offset = (parseInt(pagina) - 1) * parseInt(limite);
+
         let sql = `
             SELECT t.id, DATE_FORMAT(t.fecha, '%Y-%m-%dT%H:%i:%s') as fecha, t.tipo, t.motivo, t.estado, t.mascota_id, t.dueno_id,
             IFNULL(m.nombre, 'Sin Mascota') as mascota_nombre, IFNULL(d.nombre, 'Sin Dueño') as dueno_nombre,
@@ -220,19 +233,86 @@ const operacionService = {
             FROM turnos t
             LEFT JOIN mascotas m ON t.mascota_id = m.id
             LEFT JOIN duenos d ON t.dueno_id = d.id
-            WHERE t.tipo != 'estetica' AND (m.activo = 1 OR m.id IS NULL) AND (d.activo = 1 OR d.id IS NULL)
+            WHERE t.tipo != 'estetica' AND t.fecha_borrado IS NULL AND (m.activo = 1 OR m.id IS NULL) AND (d.activo = 1 OR d.id IS NULL)
         `;
         const params = [];
         const conditions = [];
         if (fecha) { conditions.push('DATE(t.fecha) = ?'); params.push(fecha); }
         if (soloPendientes === 'true') { conditions.push("t.estado NOT IN ('realizado', 'cancelado')"); }
         if (conditions.length > 0) { sql += ' AND ' + conditions.join(' AND '); }
-        sql += ` ORDER BY t.fecha ASC LIMIT ? OFFSET ?`;
-        params.push(parseInt(limite), (parseInt(pagina) - 1) * parseInt(limite));
 
-        const [rows] = await pool.query(sql, params);
-        return { data: rows, total: rows.length, pagina: parseInt(pagina), totalPaginas: 1 };
+        // Contar el total de registros para calcular páginas
+        const countSql = `SELECT COUNT(*) as total FROM turnos t LEFT JOIN mascotas m ON t.mascota_id = m.id WHERE t.tipo != 'estetica' AND t.fecha_borrado IS NULL` +
+            (conditions.length > 0 ? ' AND ' + conditions.join(' AND ') : '');
+        const [totalResult] = await pool.query(countSql, params);
+        const total = totalResult[0].total;
+
+        sql += ` ORDER BY t.fecha ASC LIMIT ? OFFSET ?`;
+        const [rows] = await pool.query(sql, [...params, parseInt(limite), offset]);
+
+        return { 
+            data: rows, 
+            total: total, 
+            pagina: parseInt(pagina), 
+            totalPaginas: Math.ceil(total / limite) || 1 
+        };
     },
+
+    // =============================================
+    // NUEVAS FUNCIONES PARA TURNO ELIMINADOS (PAPELERA)
+    // =============================================
+
+    // Obtener turnos eliminados (para la papelera)
+    getTurnosEliminados: async () => {
+        const [rows] = await pool.query(`
+            SELECT t.id, DATE_FORMAT(t.fecha, '%Y-%m-%dT%H:%i:%s') as fecha, t.tipo, t.motivo, t.estado, 
+                   t.mascota_id, t.dueno_id, t.fecha_borrado, t.borrado_por,
+                   IFNULL(m.nombre, 'Sin Mascota') as mascota_nombre, 
+                   IFNULL(d.nombre, 'Sin Dueño') as dueno_nombre,
+                   d.telefono AS dueno_telefono,
+                   e.nombre as responsable_borrado,
+                   est.tipo_servicio as servicio
+            FROM turnos t
+            LEFT JOIN mascotas m ON t.mascota_id = m.id
+            LEFT JOIN duenos d ON t.dueno_id = d.id
+            LEFT JOIN empleados e ON t.borrado_por = e.id
+            LEFT JOIN estetica est ON est.turno_id = t.id
+            WHERE t.fecha_borrado IS NOT NULL
+            ORDER BY t.fecha_borrado DESC
+        `);
+        return rows;
+    },
+
+    // Restaurar un turno (quitar el borrado lógico en AMBAS TABLAS)
+    restaurarTurno: async (id) => {
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            // 1. Restaurar en tabla turnos
+            await connection.query(
+                'UPDATE turnos SET fecha_borrado = NULL, borrado_por = NULL WHERE id = ?',
+                [id]
+            );
+
+            // 2. Restaurar también en tabla estetica (donde turno_id coincida)
+            await connection.query(
+                'UPDATE estetica SET fecha_borrado = NULL, borrado_por = NULL WHERE turno_id = ?',
+                [id]
+            );
+
+            await connection.commit();
+        } catch (e) {
+            await connection.rollback();
+            throw e;
+        } finally {
+            connection.release();
+        }
+    },
+
+    // =============================================
+    // FIN NUEVAS FUNCIONES
+    // =============================================
 
     crearTurnoGeneral: async (datos) => {
         const { fecha, tipo, motivo, mascota_id, dueno_id, es_nueva_mascota, mascota_nombre, dueno_nombre, raza } = datos;
@@ -260,11 +340,16 @@ const operacionService = {
         await pool.query('UPDATE turnos SET fecha = ?, motivo = ?, mascota_id = ?, dueno_id = ? WHERE id = ?', [fecha, motivo, mascota_id, dueno_id, id]);
     },
 
-    eliminarTurno: async (id) => { await pool.query('DELETE FROM turnos WHERE id = ?', [id]); },
+    eliminarTurno: async (id, usuarioId) => {
+        await pool.query(
+            'UPDATE turnos SET fecha_borrado = NOW(), borrado_por = ? WHERE id = ?',
+            [usuarioId, id]
+        );
+    },
 
     // CAJA
     getMovimientosCaja: async () => {
-        const [rows] = await pool.query(`SELECT c.*, e.nombre AS usuario_nombre, DATE_FORMAT(c.fecha, '%d/%m/%Y %H:%i') AS fecha_formateada FROM caja c LEFT JOIN empleados e ON c.usuario_id = e.id ORDER BY c.fecha DESC`);
+        const [rows] = await pool.query(`SELECT c.*, e.nombre AS usuario_nombre, DATE_FORMAT(c.fecha, '%d/%m/%Y %H:%i') AS fecha_formateada FROM caja c LEFT JOIN empleados e ON c.usuario_id = e.id WHERE c.fecha_borrado IS NULL ORDER BY c.fecha DESC`);
         return rows;
     },
 
@@ -279,18 +364,48 @@ const operacionService = {
         await pool.query('UPDATE caja SET tipo_operacion = ?, categoria = ?, descripcion = ?, monto = ?, metodo_pago = ? WHERE id = ?', [tipo_operacion, categoria, descripcion, monto, metodo_pago, id]);
     },
 
-    eliminarMovimiento: async (id) => {
-        await pool.query('DELETE FROM caja WHERE id = ?', [id]);
+    eliminarMovimiento: async (id, usuarioId) => {
+        await pool.query(
+            'UPDATE caja SET fecha_borrado = NOW(), borrado_por = ? WHERE id = ?',
+            [usuarioId, id]
+        );
+    },
+
+    // =============================================
+    // PAPELERA DE CAJA - FUNCIONES AGREGADAS
+    // =============================================
+
+    getMovimientosCajaBorrados: async () => {
+        const [rows] = await pool.query(`
+            SELECT c.*, 
+                   e.nombre AS usuario_nombre,
+                   e2.nombre AS borrado_por_nombre,
+                   DATE_FORMAT(c.fecha, '%d/%m/%Y %H:%i') AS fecha_formateada,
+                   DATE_FORMAT(c.fecha_borrado, '%d/%m/%Y %H:%i') AS fecha_borrado_formateada
+            FROM caja c
+            LEFT JOIN empleados e ON c.usuario_id = e.id
+            LEFT JOIN empleados e2 ON c.borrado_por = e2.id
+            WHERE c.fecha_borrado IS NOT NULL
+            ORDER BY c.fecha_borrado DESC
+        `);
+        return rows;
+    },
+
+    restaurarMovimientoCaja: async (id) => {
+        await pool.query(
+            'UPDATE caja SET fecha_borrado = NULL, borrado_por = NULL WHERE id = ?',
+            [id]
+        );
     },
 
     // DASHBOARD
     getReportesDashboard: async () => {
-        const [hoy] = await pool.query("SELECT SUM(monto) as total FROM caja WHERE tipo_operacion='ingreso' AND DATE(fecha) = CURDATE()");
-        const [semana] = await pool.query("SELECT SUM(monto) as total FROM caja WHERE tipo_operacion='ingreso' AND YEARWEEK(fecha, 1) = YEARWEEK(CURDATE(), 1)");
-        const [mes] = await pool.query("SELECT SUM(monto) as total FROM caja WHERE tipo_operacion='ingreso' AND MONTH(fecha) = MONTH(CURDATE()) AND YEAR(fecha) = YEAR(CURDATE())");
-        const [anio] = await pool.query("SELECT SUM(monto) as total FROM caja WHERE tipo_operacion='ingreso' AND YEAR(fecha) = YEAR(CURDATE())");
-        const [ventasPorDia] = await pool.query("SELECT DATE(fecha) as dia, SUM(monto) as total FROM caja WHERE tipo_operacion = 'ingreso' AND fecha >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) GROUP BY DATE(fecha) ORDER BY dia ASC");
-        const [turnosPorTipo] = await pool.query("SELECT tipo, COUNT(*) as value FROM turnos GROUP BY tipo");
+        const [hoy] = await pool.query("SELECT SUM(monto) as total FROM caja WHERE tipo_operacion='ingreso' AND DATE(fecha) = CURDATE() AND fecha_borrado IS NULL");
+        const [semana] = await pool.query("SELECT SUM(monto) as total FROM caja WHERE tipo_operacion='ingreso' AND YEARWEEK(fecha, 1) = YEARWEEK(CURDATE(), 1) AND fecha_borrado IS NULL");
+        const [mes] = await pool.query("SELECT SUM(monto) as total FROM caja WHERE tipo_operacion='ingreso' AND MONTH(fecha) = MONTH(CURDATE()) AND YEAR(fecha) = YEAR(CURDATE()) AND fecha_borrado IS NULL");
+        const [anio] = await pool.query("SELECT SUM(monto) as total FROM caja WHERE tipo_operacion='ingreso' AND YEAR(fecha) = YEAR(CURDATE()) AND fecha_borrado IS NULL");
+        const [ventasPorDia] = await pool.query("SELECT DATE(fecha) as dia, SUM(monto) as total FROM caja WHERE tipo_operacion = 'ingreso' AND fecha >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND fecha_borrado IS NULL GROUP BY DATE(fecha) ORDER BY dia ASC");
+        const [turnosPorTipo] = await pool.query("SELECT tipo, COUNT(*) as value FROM turnos WHERE fecha_borrado IS NULL GROUP BY tipo");
 
         return {
             totales: { dia: Number(hoy[0]?.total || 0), semana: Number(semana[0]?.total || 0), mes: Number(mes[0]?.total || 0), anio: Number(anio[0]?.total || 0) },
@@ -317,7 +432,7 @@ const operacionService = {
             DATE_FORMAT(h.fecha, '%d/%m/%Y %H:%i') AS fecha_formateada 
             FROM historial_clinico h 
             LEFT JOIN empleados e ON h.veterinario_id = e.id 
-            WHERE h.mascota_id = ? 
+            WHERE h.mascota_id = ? AND h.fecha_borrado IS NULL
             ORDER BY h.fecha DESC`, 
             [mascotaId]
         );
@@ -419,7 +534,7 @@ const operacionService = {
         }
     },
 
-    eliminarHistorial: async (id) => {
+    eliminarHistorial: async (id, usuarioId) => {
         const connection = await pool.getConnection();
         try {
             await connection.beginTransaction();
@@ -434,8 +549,11 @@ const operacionService = {
                 [id]
             );
             
-            // 2. Eliminar historial
-            await connection.query('DELETE FROM historial_clinico WHERE id = ?', [id]);
+            // 2. SOFT DELETE (borrado lógico)
+            await connection.query(
+                'UPDATE historial_clinico SET fecha_borrado = NOW(), borrado_por = ? WHERE id = ?',
+                [usuarioId, id]
+            );
             
             // 3. Registrar en auditoría
             if (historialData[0]) {
@@ -471,6 +589,7 @@ const operacionService = {
         const [rows] = await pool.query(`
             SELECT id, nombre, usuario, email, rol, activo, fecha_creacion 
             FROM empleados 
+            WHERE activo = 1
             ORDER BY nombre ASC
         `);
         return rows;

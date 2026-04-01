@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
     faPills, faPlus, faEdit, faTrash, faSearch, faFilePdf, faFileExcel,
-    faInfoCircle, faMedkit, faDollarSign, faBox, faArrowLeft, faArrowRight
+    faInfoCircle, faMedkit, faDollarSign, faBox, faArrowLeft, faArrowRight,
+    faTrashAlt, faHistory, faTrashRestore
 } from '@fortawesome/free-solid-svg-icons';
 import ConfirmModal from '../component/ConfirmModal';
 import ProductoModal from '../component/ProductoModal';
@@ -22,24 +23,60 @@ const MedicamentosPage = () => {
     const [limite] = useState(12);
     const [loading, setLoading] = useState(false);
 
-    const cargar = async () => {
+    const [showPapelera, setShowPapelera] = useState(false);
+    const [medicamentosEliminados, setMedicamentosEliminados] = useState([]);
+
+    // FUNCIÓN DE CARGA Y BÚSQUEDA COMBINADA
+    const cargar = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await api.get(`/productos/medicamentos?pagina=${pagina}&limite=${limite}`);
-            console.log('💊 Respuesta de medicamentos:', res.data);
-            const data = res.data.productos || res.data || [];
-            setMedicamentos(Array.isArray(data) ? data : []);
+            let res;
+            if (busqueda.trim() !== '') {
+                // Si hay búsqueda, usamos el endpoint de buscar
+                res = await api.get(`/productos/buscar?q=${busqueda}&categoria=medicamentos`);
+                // Ajustamos la respuesta porque el buscador suele devolver un array directo
+                const data = res.data.productos || res.data || [];
+                setMedicamentos(Array.isArray(data) ? data.filter(p => p.categoria === 'medicamentos') : []);
+            } else {
+                // Si no hay búsqueda, paginación normal
+                res = await api.get(`/productos/medicamentos?pagina=${pagina}&limite=${limite}`);
+                const data = res.data.productos || res.data || [];
+                setMedicamentos(Array.isArray(data) ? data : []);
+            }
         } catch (err) {
-            console.error("❌ Error al cargar medicamentos:", err);
+            console.error("❌ Error al cargar:", err);
             setMedicamentos([]);
         } finally {
             setLoading(false);
         }
-    };
+    }, [pagina, busqueda, limite]);
 
     useEffect(() => {
-        cargar();
-    }, [pagina]);
+        const timeoutId = setTimeout(() => {
+            cargar();
+        }, 300); // Debounce de 300ms para no saturar el server mientras escribís
+        return () => clearTimeout(timeoutId);
+    }, [cargar]);
+
+    const cargarPapelera = async () => {
+        try {
+            const res = await api.get('/productos/papelera/medicamentos');
+            setMedicamentosEliminados(res.data);
+        } catch (err) {
+            console.error("❌ Error al cargar papelera:", err);
+        }
+    };
+
+    const restaurarMedicamento = async (id) => {
+        try {
+            await api.put(`/productos/restaurar/${id}`);
+            cargarPapelera();
+            cargar();
+        } catch (err) {
+            console.error("❌ Error al restaurar:", err);
+            alert("No se pudo restaurar el medicamento");
+        }
+    };
 
     const getVencimientoInfo = (fechaVenc) => {
         if (!fechaVenc) return { estado: 'sin_fecha', texto: 'Sin fecha', clase: 'bg-secondary' };
@@ -51,8 +88,6 @@ const MedicamentosPage = () => {
         return { estado: 'ok', texto: `OK (${diasRestantes} d)`, clase: 'bg-success text-white' };
     };
 
-    const filtrados = medicamentos.filter(m => m.nombre.toLowerCase().includes(busqueda.toLowerCase()));
-
     const getStockBadgeClass = (cantidad) => {
         if (cantidad <= 0) return 'bg-danger';
         if (cantidad <= 5) return 'bg-warning text-dark';
@@ -60,7 +95,7 @@ const MedicamentosPage = () => {
     };
 
     const exportarExcel = () => {
-        const ws = XLSX.utils.json_to_sheet(filtrados.map(m => ({
+        const ws = XLSX.utils.json_to_sheet(medicamentos.map(m => ({
             Nombre: m.nombre,
             Precio: m.precio_venta,
             Stock: m.stock,
@@ -77,7 +112,7 @@ const MedicamentosPage = () => {
         autoTable(doc, {
             startY: 30,
             head: [['Nombre', 'Precio', 'Stock', 'Vencimiento']],
-            body: filtrados.map(m => [
+            body: medicamentos.map(m => [
                 m.nombre,
                 `$${m.precio_venta}`,
                 m.stock,
@@ -101,18 +136,35 @@ const MedicamentosPage = () => {
                         <FontAwesomeIcon icon={faPills} className="me-2" /> Farmacia
                     </h1>
                     <div className="d-flex gap-2">
+                        <button className="btn btn-danger rounded-pill px-3 shadow-sm" onClick={() => { cargarPapelera(); setShowPapelera(true); }}>
+                            <FontAwesomeIcon icon={faTrashAlt} className="me-2" /> Papelera
+                        </button>
                         <button className="btn btn-danger rounded-pill px-3 shadow-sm" onClick={exportarPDF}>
                             <FontAwesomeIcon icon={faFilePdf} />
                         </button>
                         <button className="btn btn-success rounded-pill px-3 shadow-sm" onClick={exportarExcel}>
                             <FontAwesomeIcon icon={faFileExcel} />
                         </button>
-                        <button className="btn btn-light rounded-pill px-4 fw-bold shadow-sm" onClick={() => {
-                            setDatosEdicion(null);
-                            setShowModal(true);
-                        }}>
+                        <button className="btn btn-light rounded-pill px-4 fw-bold shadow-sm" onClick={() => { setDatosEdicion(null); setShowModal(true); }}>
                             + Nuevo
                         </button>
+                    </div>
+                </div>
+
+                <div className="row justify-content-center mb-5">
+                    <div className="col-md-6 col-lg-5">
+                        <div className="input-group shadow-sm rounded-pill overflow-hidden bg-white border-0">
+                            <span className="input-group-text bg-white border-0 ps-3">
+                                <FontAwesomeIcon icon={faSearch} className="text-muted" />
+                            </span>
+                            <input
+                                type="text"
+                                className="form-control border-0 py-2 ps-1"
+                                placeholder="Buscar en toda la farmacia..."
+                                value={busqueda}
+                                onChange={(e) => { setBusqueda(e.target.value); setPagina(1); }}
+                            />
+                        </div>
                     </div>
                 </div>
 
@@ -121,30 +173,13 @@ const MedicamentosPage = () => {
                         <div className="spinner-border text-light" role="status">
                             <span className="visually-hidden">Cargando...</span>
                         </div>
-                        <p className="mt-2">Cargando medicamentos...</p>
+                        <p className="mt-2">Buscando medicamentos...</p>
                     </div>
                 ) : (
                     <>
-                        <div className="row justify-content-center mb-5">
-                            <div className="col-md-6 col-lg-5">
-                                <div className="input-group shadow-sm rounded-pill overflow-hidden bg-white border-0">
-                                    <span className="input-group-text bg-white border-0 ps-3">
-                                        <FontAwesomeIcon icon={faSearch} className="text-muted" />
-                                    </span>
-                                    <input
-                                        type="text"
-                                        className="form-control border-0 py-2 ps-1"
-                                        placeholder="Buscar medicamento..."
-                                        value={busqueda}
-                                        onChange={(e) => setBusqueda(e.target.value)}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
                         <div className="row g-4">
-                            {filtrados.length > 0 ? (
-                                filtrados.map(m => {
+                            {medicamentos.length > 0 ? (
+                                medicamentos.map(m => {
                                     const vencInfo = getVencimientoInfo(m.vencimiento_med);
                                     return (
                                         <div className="col-md-4 col-lg-3" key={m.id}>
@@ -160,22 +195,10 @@ const MedicamentosPage = () => {
                                                         Stock: {m.stock}
                                                     </span>
                                                     <div className="d-flex gap-1">
-                                                        <button
-                                                            className="btn btn-sm btn-outline-primary rounded-circle"
-                                                            onClick={() => {
-                                                                setDatosEdicion(m);
-                                                                setShowModal(true);
-                                                            }}
-                                                        >
+                                                        <button className="btn btn-sm btn-outline-primary rounded-circle" style={{ backgroundColor: 'white' }} onClick={() => { setDatosEdicion(m); setShowModal(true); }}>
                                                             <FontAwesomeIcon icon={faEdit} />
                                                         </button>
-                                                        <button
-                                                            className="btn btn-sm btn-outline-danger rounded-circle"
-                                                            onClick={() => {
-                                                                setIdToDelete(m.id);
-                                                                setShowConfirm(true);
-                                                            }}
-                                                        >
+                                                        <button className="btn btn-sm btn-outline-danger rounded-circle" style={{ backgroundColor: 'white' }} onClick={() => { setIdToDelete(m.id); setShowConfirm(true); }}>
                                                             <FontAwesomeIcon icon={faTrash} />
                                                         </button>
                                                     </div>
@@ -186,34 +209,86 @@ const MedicamentosPage = () => {
                                 })
                             ) : (
                                 <div className="col-12 text-center text-white py-5">
-                                    <h3>No hay medicamentos registrados</h3>
-                                    <p>Hacé clic en "+ Nuevo" para agregar el primero</p>
+                                    <h3>No se encontraron resultados</h3>
                                 </div>
                             )}
                         </div>
 
-                        <div className="d-flex justify-content-center align-items-center gap-3 mt-5 pb-4">
-                            <button
-                                className="btn btn-light rounded-circle shadow-sm"
-                                disabled={pagina === 1}
-                                onClick={() => setPagina(pagina - 1)}
-                            >
-                                <FontAwesomeIcon icon={faArrowLeft} />
-                            </button>
-                            <span className="badge bg-white text-dark px-3 py-2 rounded-pill fw-bold">
-                                Página {pagina}
-                            </span>
-                            <button
-                                className="btn btn-light rounded-circle shadow-sm"
-                                disabled={medicamentos.length < limite}
-                                onClick={() => setPagina(pagina + 1)}
-                            >
-                                <FontAwesomeIcon icon={faArrowRight} />
-                            </button>
-                        </div>
+                        {/* Solo mostrar paginación si no hay búsqueda activa */}
+                        {busqueda.trim() === '' && (
+                            <div className="d-flex justify-content-center align-items-center gap-3 mt-5 pb-4">
+                                <button className="btn btn-light rounded-circle shadow-sm" disabled={pagina === 1} onClick={() => setPagina(pagina - 1)}>
+                                    <FontAwesomeIcon icon={faArrowLeft} />
+                                </button>
+                                <span className="badge bg-white text-dark px-3 py-2 rounded-pill fw-bold">
+                                    Página {pagina}
+                                </span>
+                                <button className="btn btn-light rounded-circle shadow-sm" disabled={medicamentos.length < limite} onClick={() => setPagina(pagina + 1)}>
+                                    <FontAwesomeIcon icon={faArrowRight} />
+                                </button>
+                            </div>
+                        )}
                     </>
                 )}
             </div>
+
+            {/* MODAL PAPELERA */}
+            {showPapelera && (
+                <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1070 }}>
+                    <div className="modal-dialog modal-lg modal-dialog-centered">
+                        <div className="modal-content border-0 rounded-4 shadow-lg p-0">
+                            <div className="modal-header bg-danger text-white rounded-top-4 p-3">
+                                <h5 className="modal-title fw-bold">
+                                    <FontAwesomeIcon icon={faHistory} className="me-2" /> Papelera de Medicamentos
+                                </h5>
+                                <button type="button" className="btn-close btn-close-white" onClick={() => setShowPapelera(false)}></button>
+                            </div>
+                            <div className="modal-body p-0">
+                                <div className="table-responsive" style={{ maxHeight: '450px' }}>
+                                    <table className="table table-hover mb-0">
+                                        <thead className="table-light sticky-top">
+                                            <tr>
+                                                <th>Nombre</th>
+                                                <th>Precio</th>
+                                                <th>Borrado por</th>
+                                                <th>Fecha</th>
+                                                <th className="text-center">Restaurar</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {medicamentosEliminados.length > 0 ? (
+                                                medicamentosEliminados.map(med => (
+                                                    <tr key={med.id}>
+                                                        <td>
+                                                            <div className="fw-bold">{med.nombre}</div>
+                                                            <small className="text-muted text-uppercase" style={{ fontSize: '10px' }}>Stock: {med.stock}</small>
+                                                        </td>
+                                                        <td className="text-success fw-bold">${med.precio_venta}</td>
+                                                        <td><span className="badge bg-light text-dark">{med.responsable_borrado || 'Admin'}</span></td>
+                                                        <td style={{ fontSize: '13px' }}>{new Date(med.fecha_borrado).toLocaleString()}</td>
+                                                        <td className="text-center">
+                                                            <button className="btn btn-sm btn-success rounded-circle shadow-sm" onClick={() => restaurarMedicamento(med.id)}>
+                                                                <FontAwesomeIcon icon={faTrashRestore} />
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            ) : (
+                                                <tr>
+                                                    <td colSpan="5" className="text-center py-5 text-muted">La papelera está vacía</td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div className="modal-footer border-0 p-3">
+                                <button className="btn btn-dark rounded-pill px-4 fw-bold" onClick={() => setShowPapelera(false)}>CERRAR</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <ProductoModal
                 show={showModal}
@@ -227,7 +302,6 @@ const MedicamentosPage = () => {
                         cargar();
                     } catch (err) {
                         console.error("Error al guardar:", err);
-                        alert("Error: No se pudo guardar. Revisa que todos los campos estén llenos.");
                     }
                 }}
                 datosEdicion={datosEdicion}
@@ -240,6 +314,7 @@ const MedicamentosPage = () => {
                 onConfirm={async () => {
                     try {
                         await api.delete(`/productos/${idToDelete}`);
+                        setShowConfirm(true); // Ocultar confirmación
                         setShowConfirm(false);
                         cargar();
                     } catch (err) {

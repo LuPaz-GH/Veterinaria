@@ -3,11 +3,14 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faUser, faPaw, faPlus, faEdit, faTrash, faSearch, 
   faIdCard, faPhoneAlt, faMapMarkerAlt, faChevronRight, faUserPlus, faInfoCircle, faSpinner, faTimes, faArrowRight,
-  faThLarge, faList, faPrint, faChevronLeft, faDog, faPlusCircle, faSave, faArrowLeft, faTrashRestore, faHistory
+  faThLarge, faList, faPrint, faChevronLeft, faDog, faPlusCircle, faSave, faArrowLeft, faTrashRestore, faHistory,
+  faFilePdf, faFileExcel // Nuevos íconos
 } from '@fortawesome/free-solid-svg-icons';
 import ConfirmModal from '../component/ConfirmModal'; 
 import api from '../services/api';
 import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 const ClientesPage = () => {
   const [duenos, setDuenos] = useState([]);
@@ -43,18 +46,14 @@ const ClientesPage = () => {
     finally { setLoading(false); }
   };
 
-  // --- CORRECCIÓN: CARGAR DUEÑOS Y MASCOTAS EN LA PAPELERA ---
   const cargarPapelera = async () => {
     try {
       const [resD, resM] = await Promise.all([
         api.get('/duenos/papelera'),
         api.get('/mascotas/papelera')
       ]);
-      
-      // Combinamos ambos arreglos marcando cuál es cuál
-      const d = resD.data.map(item => ({ ...item, tipoPapelera: 'dueño' }));
-      const m = resM.data.map(item => ({ ...item, tipoPapelera: 'mascota' }));
-      
+      const d = (resD.data || []).map(item => ({ ...item, tipoPapelera: 'dueño' }));
+      const m = (resM.data || []).map(item => ({ ...item, tipoPapelera: 'mascota' }));
       setEliminados([...d, ...m]);
     } catch (err) { console.error("Error al cargar papelera"); }
   };
@@ -70,7 +69,6 @@ const ClientesPage = () => {
     } catch (err) { alert("No se pudo restaurar."); }
   };
 
-  // --- LÓGICA DE MASCOTAS DINÁMICAS ---
   const agregarCampoMascota = () => {
     setListaMascotasAlta([...listaMascotasAlta, { nombre: '', especie: 'Perro', raza: '' }]);
   };
@@ -119,7 +117,13 @@ const ClientesPage = () => {
       }
       setShowDuenoModal(false);
       cargarDatos();
-    } catch (err) { alert("Error al procesar registro"); }
+    } catch (err) { 
+        if (err.response && err.response.status === 409) {
+            alert("⚠️ Atención: Ya existe un cliente registrado con ese DNI o Nombre.");
+        } else {
+            alert("Error al procesar el registro."); 
+        }
+    }
   };
 
   const confirmarEliminar = async () => {
@@ -130,6 +134,38 @@ const ClientesPage = () => {
       if (itemEliminar.tipo === 'dueno') setShowDetalle(false);
       cargarDatos();
     } catch (err) { alert("Error al eliminar."); }
+  };
+
+  // =============================================
+  // FUNCIONES DE EXPORTACIÓN
+  // =============================================
+  const exportarExcel = () => {
+    const dataExcel = filtrados.map(c => ({
+      Dueño: c.nombre,
+      DNI: c.dni,
+      Teléfono: c.telefono,
+      Dirección: c.direccion,
+      Mascotas: c.mascotasAsociadas.map(m => m.nombre).join(', ')
+    }));
+    const ws = XLSX.utils.json_to_sheet(dataExcel);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Clientes");
+    XLSX.writeFile(wb, "Listado_Clientes_Malfi.xlsx");
+  };
+
+  const exportarPDFGeneral = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text("Listado de Clientes - Malfi Veterinaria", 14, 20);
+    const columns = ["Dueño", "DNI", "Teléfono", "Mascotas"];
+    const rows = filtrados.map(c => [
+      c.nombre,
+      c.dni,
+      c.telefono,
+      c.mascotasAsociadas.map(m => m.nombre).join(', ')
+    ]);
+    autoTable(doc, { head: [columns], body: rows, startY: 30 });
+    doc.save("Clientes_Malfi.pdf");
   };
 
   const exportarComprobanteCliente = (cliente) => {
@@ -158,15 +194,26 @@ const ClientesPage = () => {
         
         <header className="d-flex justify-content-between align-items-center mb-5 flex-wrap gap-3">
           <h1 className="text-white fw-black display-4 mb-0" style={{ textShadow: '0 10px 20px rgba(0,0,0,0.4)', letterSpacing: '-2px' }}>Clientes <span style={{ color: '#ff69b4' }}>&</span> Pacientes</h1>
-          <div className="d-flex gap-3 align-items-center">
-              <button className="btn btn-outline-light rounded-pill px-3 shadow-sm" onClick={() => { cargarPapelera(); setShowPapelera(true); }}>
-                <FontAwesomeIcon icon={faHistory} className="me-2" /> PAPELERA
+          
+          <div className="d-flex gap-2 align-items-center">
+              {/* BOTONES DE EXPORTACIÓN AGREGADOS */}
+              <button className="btn btn-danger rounded-pill px-3 fw-bold shadow-lg text-white" onClick={exportarPDFGeneral} title="Exportar a PDF">
+                <FontAwesomeIcon icon={faFilePdf} className="me-1" /> PDF
               </button>
+              <button className="btn btn-success rounded-pill px-3 fw-bold shadow-lg text-white" onClick={exportarExcel} title="Exportar a Excel">
+                <FontAwesomeIcon icon={faFileExcel} className="me-1" /> EXCEL
+              </button>
+
+              <button className="btn btn-warning rounded-pill px-3 fw-bold shadow-lg text-white" onClick={() => { cargarPapelera(); setShowPapelera(true); }} style={{ border: '2px solid rgba(255,255,255,0.4)' }}>
+                <FontAwesomeIcon icon={faTrash} className="me-1" /> PAPELERA
+              </button>
+
               <div className="bg-white bg-opacity-20 p-1 rounded-pill d-flex shadow-lg" style={{ backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.2)' }}>
                 <button className={`btn rounded-pill px-3 py-2 ${vistaCards ? 'bg-white text-primary shadow-sm' : 'text-white border-0'}`} onClick={() => {setVistaCards(true); setPaginaActual(1);}}><FontAwesomeIcon icon={faThLarge} /></button>
                 <button className={`btn rounded-pill px-3 py-2 ${!vistaCards ? 'bg-white text-primary shadow-sm' : 'text-white border-0'}`} onClick={() => {setVistaCards(false); setPaginaActual(1);}}><FontAwesomeIcon icon={faList} /></button>
               </div>
-              <button className="btn btn-vibrante" onClick={() => { setDatosEdicion(null); setFormDueno({nombre:'', dni:'', telefono:'', direccion:''}); setListaMascotasAlta([{ nombre: '', especie: 'Perro', raza: '' }]); setShowDuenoModal(true); }}>
+
+              <button className="btn btn-primary rounded-pill px-4 fw-bold shadow-lg" onClick={() => { setDatosEdicion(null); setFormDueno({nombre:'', dni:'', telefono:'', direccion:''}); setListaMascotasAlta([{ nombre: '', especie: 'Perro', raza: '' }]); setShowDuenoModal(true); }}>
                 <FontAwesomeIcon icon={faUserPlus} className="me-2" /> NUEVO REGISTRO
               </button>
           </div>
@@ -175,7 +222,7 @@ const ClientesPage = () => {
         <div className="mb-5 d-flex justify-content-center">
             <div className="input-group shadow-lg rounded-pill overflow-hidden border-0" style={{ maxWidth: '500px', background: 'white' }}>
                 <span className="input-group-text bg-white border-0 ps-4 text-primary"><FontAwesomeIcon icon={faSearch} /></span>
-                <input type="text" className="form-control border-0 py-3 bg-white text-dark" placeholder="Buscar dueño, mascota o documento..." value={busqueda} onChange={(e) => { setBusqueda(e.target.value); setPaginaActual(1); }} />
+                <input type="text" className="form-control border-0 py-3 bg-white text-dark" placeholder="Buscar..." value={busqueda} onChange={(e) => { setBusqueda(e.target.value); setPaginaActual(1); }} />
             </div>
         </div>
 
@@ -185,21 +232,30 @@ const ClientesPage = () => {
               <div className="row g-4">
                   {clientesPaginados.map(cliente => (
                     <div className="col-md-6 col-lg-4" key={cliente.id}>
-                        <div className="card-cliente-premium transition-card" style={{ minHeight: '260px', cursor: 'pointer' }} onClick={() => { setClienteSeleccionado(cliente); setShowDetalle(true); setShowNuevaMascotaForm(false); }}>
+                        <div className="card border-0 shadow-lg p-3 rounded-4 bg-white bg-opacity-95" style={{ minHeight: '260px', cursor: 'pointer' }} onClick={() => { setClienteSeleccionado(cliente); setShowDetalle(true); setShowNuevaMascotaForm(false); }}>
                             <div className="card-body p-0 d-flex flex-column text-dark">
-                                <div className="header-cliente-solid d-flex align-items-center justify-content-between">
-                                    <div className="d-flex align-items-center"><div className="rounded-circle d-flex align-items-center justify-content-center shadow-sm" style={{ width: '50px', height: '50px', background: 'linear-gradient(135deg, #6a11cb 0%, #2575fc 100%)', color: 'white' }}><FontAwesomeIcon icon={faUser} /></div><div className="ms-3"><h5 className="fw-bold mb-0">{cliente.nombre}</h5><span className="small opacity-75">DNI: {cliente.dni}</span></div></div>
+                                <div className="d-flex align-items-center justify-content-between mb-3">
+                                    <div className="d-flex align-items-center">
+                                        <div className="rounded-circle d-flex align-items-center justify-content-center shadow-sm" style={{ width: '50px', height: '50px', background: 'linear-gradient(135deg, #6a11cb 0%, #2575fc 100%)', color: 'white' }}><FontAwesomeIcon icon={faUser} /></div>
+                                        <div className="ms-3"><h5 className="fw-bold mb-0">{cliente.nombre}</h5><span className="small text-muted">DNI: {cliente.dni}</span></div>
+                                    </div>
                                     <button className="btn btn-sm text-primary" onClick={(e) => { e.stopPropagation(); exportarComprobanteCliente(cliente); }}><FontAwesomeIcon icon={faPrint}/></button>
                                 </div>
-                                <div className="p-4"><div className="d-flex flex-wrap gap-2">{cliente.mascotasAsociadas.map(m => (<div key={m.id} className="badge-paciente"><FontAwesomeIcon icon={faPaw} className="me-2 text-primary" /><span className="small fw-black">{m.nombre}</span></div>))}</div></div>
-                                <div className="mt-auto p-3 d-flex justify-content-between align-items-center bg-white bg-opacity-10 border-top border-white border-opacity-10 text-white"><div className="small fw-black">VER FICHA <FontAwesomeIcon icon={faArrowRight} /></div><div className="d-flex gap-2" onClick={e => e.stopPropagation()}><button className="btn btn-sm btn-white rounded-circle shadow-sm" onClick={() => { setDatosEdicion(cliente); setFormDueno(cliente); setShowDuenoModal(true); }}><FontAwesomeIcon icon={faEdit} className="text-primary" /></button><button className="btn btn-sm btn-white rounded-circle shadow-sm" onClick={() => { setItemEliminar({id: cliente.id, tipo: 'dueno'}); setShowConfirm(true); }}><FontAwesomeIcon icon={faTrash} className="text-danger" /></button></div></div>
+                                <div className="mb-3"><div className="d-flex flex-wrap gap-2">{cliente.mascotasAsociadas.map(m => (<div key={m.id} className="bg-primary bg-opacity-10 text-primary px-3 py-1 rounded-pill small fw-bold"><FontAwesomeIcon icon={faPaw} className="me-2" />{m.nombre}</div>))}</div></div>
+                                <div className="mt-auto d-flex justify-content-between align-items-center pt-3 border-top">
+                                    <div className="small fw-bold text-primary">VER FICHA <FontAwesomeIcon icon={faArrowRight} /></div>
+                                    <div className="d-flex gap-2" onClick={e => e.stopPropagation()}>
+                                        <button className="btn btn-sm btn-light rounded-circle shadow-sm" onClick={() => { setDatosEdicion(cliente); setFormDueno(cliente); setShowDuenoModal(true); }}><FontAwesomeIcon icon={faEdit} className="text-primary" /></button>
+                                        <button className="btn btn-sm btn-light rounded-circle shadow-sm" onClick={() => { setItemEliminar({id: cliente.id, tipo: 'dueno'}); setShowConfirm(true); }}><FontAwesomeIcon icon={faTrash} className="text-danger" /></button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                   ))}
               </div>
             ) : (
-                <div className="card border-0 shadow-xl rounded-4 overflow-hidden" style={{ background: 'rgba(255, 255, 255, 0.95)', backdropFilter: 'blur(10px)' }}>
+                <div className="card border-0 shadow-xl rounded-4 overflow-hidden bg-white">
                     <table className="table table-hover align-middle mb-0 text-dark">
                         <thead className="table-dark">
                             <tr><th className="ps-4">Dueño</th><th>Pacientes</th><th>Teléfono</th><th className="text-end pe-4">Acciones</th></tr>
@@ -220,70 +276,96 @@ const ClientesPage = () => {
                     </table>
                 </div>
             )}
-            <div className="d-flex justify-content-center mt-5 gap-2 pb-5">
-                <button className="btn btn-light rounded-pill px-4 shadow-sm" disabled={paginaActual === 1} onClick={() => setPaginaActual(paginaActual - 1)}>Anterior</button>
-                {[...Array(totalPaginas)].map((_, i) => (<button key={i} className={`btn rounded-circle shadow-sm ${paginaActual === i+1 ? 'btn-primary' : 'btn-light'}`} style={{width:'40px', height:'40px'}} onClick={() => setPaginaActual(i+1)}>{i+1}</button>))}
-                <button className="btn btn-light rounded-pill px-4 shadow-sm" disabled={paginaActual === totalPaginas} onClick={() => setPaginaActual(paginaActual + 1)}>Siguiente</button>
-            </div>
+
+            {/* PAGINACIÓN */}
+            {totalPaginas > 1 && (
+                <div className="d-flex justify-content-center mt-5 gap-2 pb-5">
+                    <button className="btn btn-light rounded-pill px-4 shadow-sm fw-bold" disabled={paginaActual === 1} onClick={() => setPaginaActual(paginaActual - 1)}>
+                        <FontAwesomeIcon icon={faChevronLeft} className="me-2" /> Anterior
+                    </button>
+                    {[...Array(totalPaginas)].map((_, i) => (
+                        <button key={i} className={`btn rounded-circle shadow-sm fw-bold ${paginaActual === i+1 ? 'btn-primary' : 'btn-light'}`} style={{width:'45px', height:'45px'}} onClick={() => setPaginaActual(i+1)}>
+                            {i+1}
+                        </button>
+                    ))}
+                    <button className="btn btn-light rounded-pill px-4 shadow-sm fw-bold" disabled={paginaActual === totalPaginas} onClick={() => setPaginaActual(paginaActual + 1)}>
+                        Siguiente <FontAwesomeIcon icon={faChevronRight} className="ms-2" />
+                    </button>
+                </div>
+            )}
           </>
         )}
 
-        {/* MODAL PAPELERA CORREGIDO: MUESTRA DUEÑO O MASCOTA */}
+        {/* MODAL PAPELERA */}
         {showPapelera && (
             <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(10px)', zIndex: 1200 }}>
                 <div className="modal-dialog modal-lg modal-dialog-centered">
-                    <div className="modal-content rounded-5 border-0 shadow-2xl bg-white text-dark">
-                        <div className="p-4 bg-danger text-white rounded-top-5 text-center">
-                            <h3 className="fw-black mb-0"><FontAwesomeIcon icon={faHistory} /> PAPELERA DE RECICLAJE</h3>
+                    <div className="modal-content border-0 shadow-2xl bg-white" style={{ borderRadius: '40px', overflow: 'hidden' }}>
+                        <div className="p-4 bg-danger text-white text-center">
+                            <h3 className="fw-black mb-0 text-uppercase"><FontAwesomeIcon icon={faHistory} className="me-2" /> Papelera de Reciclaje</h3>
                         </div>
                         <div className="modal-body p-4" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-                            <table className="table table-hover align-middle">
-                                <thead className="table-light"><tr><th>Nombre</th><th>Tipo</th><th>Borrado por</th><th>Fecha</th><th className="text-center">Restaurar</th></tr></thead>
+                            <table className="table table-hover align-middle text-dark">
+                                <thead className="bg-light"><tr><th>Nombre</th><th>Tipo</th><th className="text-center">Borrado por</th><th>Fecha</th><th className="text-center">Restaurar</th></tr></thead>
                                 <tbody>
-                                    {eliminados.length === 0 ? <tr><td colSpan="5" className="text-center py-4 text-muted small">Papelera vacía</td></tr> : eliminados.map(e => (
+                                    {eliminados.length === 0 ? <tr><td colSpan="5" className="text-center py-5 text-muted small">La papelera está vacía</td></tr> : eliminados.map(e => (
                                         <tr key={`${e.tipoPapelera}-${e.id}`}>
                                             <td><div className="fw-bold">{e.nombre}</div><small className="text-muted">{e.dni ? `DNI: ${e.dni}` : e.raza}</small></td>
                                             <td><span className={`badge ${e.tipoPapelera === 'dueño' ? 'bg-primary' : 'bg-info'}`}>{e.tipoPapelera.toUpperCase()}</span></td>
-                                            <td><span className="badge bg-light text-dark border">{e.responsable_borrado || 'Sistema'}</span></td>
+                                            <td className="text-center"><span className="badge bg-light text-dark border">{e.responsable_borrado || 'Sistema'}</span></td>
                                             <td><small>{new Date(e.fecha_borrado).toLocaleString('es-AR')}</small></td>
-                                            <td className="text-center"><button className="btn btn-sm btn-success rounded-circle shadow-sm p-2" title="Volver al sistema" onClick={() => restaurarItem(e.id, e.tipoPapelera)}><FontAwesomeIcon icon={faTrashRestore} /></button></td>
+                                            <td className="text-center"><button className="btn btn-success rounded-circle shadow-sm" style={{width:'40px', height:'40px'}} onClick={() => restaurarItem(e.id, e.tipoPapelera)}><FontAwesomeIcon icon={faTrashRestore} /></button></td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
                         </div>
-                        <div className="p-3 text-center border-top bg-light rounded-bottom-5"><button className="btn btn-dark rounded-pill px-5 fw-bold" onClick={() => setShowPapelera(false)}>CERRAR</button></div>
+                        <div className="modal-footer justify-content-center border-0 pb-4 bg-white">
+                            <button className="btn text-white px-5 py-2 fw-bold" style={{ backgroundColor: '#2C3E50', borderRadius: '25px' }} onClick={() => setShowPapelera(false)}>CERRAR</button>
+                        </div>
                     </div>
                 </div>
             </div>
         )}
 
-        {/* MODAL DETALLE (FICHA) */}
+        {/* MODAL DETALLE */}
         {showDetalle && clienteSeleccionado && (
             <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)', zIndex: 1050 }}>
                 <div className="modal-dialog modal-xl modal-dialog-centered">
-                    <div className="modal-content border-0 rounded-5 shadow-2xl overflow-hidden bg-white text-dark">
+                    <div className="modal-content border-0 rounded-5 shadow-2xl overflow-hidden bg-white">
                         <div className="row g-0">
                             <div className="col-md-4 p-5 text-white d-flex flex-column justify-content-between" style={{ background: 'linear-gradient(180deg, #6a11cb 0%, #2575fc 100%)' }}>
                                 <div>
                                     <div className="text-center mb-4"><div className="bg-white rounded-circle d-inline-flex p-4 shadow-lg mb-3 text-primary"><FontAwesomeIcon icon={faUser} size="4x" /></div><h2 className="fw-black">{clienteSeleccionado.nombre}</h2></div>
                                     <div className="mt-4"><p className="bg-black bg-opacity-20 p-3 rounded-4 mb-2 d-flex align-items-center"><FontAwesomeIcon icon={faIdCard} className="me-3"/> DNI: {clienteSeleccionado.dni}</p><p className="bg-black bg-opacity-20 p-3 rounded-4 mb-2 d-flex align-items-center"><FontAwesomeIcon icon={faPhoneAlt} className="me-3"/> {clienteSeleccionado.telefono}</p><p className="bg-black bg-opacity-20 p-3 rounded-4 mb-4 d-flex align-items-center"><FontAwesomeIcon icon={faMapMarkerAlt} className="me-3"/> Dir: {clienteSeleccionado.direccion}</p></div>
                                 </div>
-                                <button className="btn btn-volver-vibrante w-100 shadow-lg mt-4" onClick={() => setShowDetalle(false)}><FontAwesomeIcon icon={faArrowLeft} className="me-2" /> VOLVER AL LISTADO</button>
+                                <button className="btn rounded-pill shadow-lg border-0 d-flex align-items-center justify-content-center transition-all fw-bold py-3 text-white" onClick={() => setShowDetalle(false)} style={{ background: 'rgba(255, 255, 255, 0.2)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.3)' }}>
+                                    <FontAwesomeIcon icon={faArrowLeft} className="me-2" /> VOLVER AL LISTADO
+                                </button>
                             </div>
-                            <div className="col-md-8 p-5 bg-white">
-                                <div className="d-flex justify-content-between align-items-center mb-4"><h3 className="fw-black text-primary mb-0">PACIENTES ASOCIADOS</h3><button className="btn btn-success btn-sm rounded-pill px-3 shadow-sm fw-bold" onClick={() => setShowNuevaMascotaForm(true)}>+ AGREGAR MASCOTA</button></div>
+                            <div className="col-md-8 p-5 bg-white text-dark">
+                                <div className="d-flex justify-content-between align-items-center mb-4"><h3 className="fw-black text-primary mb-0">PACIENTES ASOCIADOS</h3><button className="btn btn-success rounded-pill px-4 shadow-sm fw-bold" onClick={() => setShowNuevaMascotaForm(true)}>+ AGREGAR MASCOTA</button></div>
                                 {showNuevaMascotaForm && (
-                                    <div className="p-4 rounded-4 mb-4 bg-light border-start border-5 border-success shadow-sm">
+                                    <div className="p-4 rounded-4 mb-4 bg-light border-start border-5 border-success">
                                         <div className="row g-2">
-                                            <div className="col-md-4"><input type="text" className="form-control form-control-sm" placeholder="Nombre" value={nuevaMascotaExtra.nombre} onChange={e => setNuevaMascotaExtra({...nuevaMascotaExtra, nombre: e.target.value})} /></div>
-                                            <div className="col-md-3"><select className="form-select form-select-sm" value={nuevaMascotaExtra.especie} onChange={e => setNuevaMascotaExtra({...nuevaMascotaExtra, especie: e.target.value})}><option value="Perro">Perro 🐶</option><option value="Gato">Gato 🐱</option><option value="Otro">Otro 🐾</option></select></div>
-                                            <div className="col-md-3"><input type="text" className="form-control form-control-sm" placeholder="Raza" value={nuevaMascotaExtra.raza} onChange={e => setNuevaMascotaExtra({...nuevaMascotaExtra, raza: e.target.value})} /></div>
-                                            <div className="col-md-2"><button className="btn btn-success btn-sm w-100" onClick={handleAgregarMascotaFicha}><FontAwesomeIcon icon={faSave}/></button></div>
+                                            <div className="col-md-4"><input type="text" className="form-control" placeholder="Nombre" value={nuevaMascotaExtra.nombre} onChange={e => setNuevaMascotaExtra({...nuevaMascotaExtra, nombre: e.target.value})} /></div>
+                                            <div className="col-md-3"><select className="form-select" value={nuevaMascotaExtra.especie} onChange={e => setNuevaMascotaExtra({...nuevaMascotaExtra, especie: e.target.value})}><option value="Perro">Perro 🐶</option><option value="Gato">Gato 🐱</option><option value="Otro">Otro 🐾</option></select></div>
+                                            <div className="col-md-3"><input type="text" className="form-control" placeholder="Raza" value={nuevaMascotaExtra.raza} onChange={e => setNuevaMascotaExtra({...nuevaMascotaExtra, raza: e.target.value})} /></div>
+                                            <div className="col-md-2"><button className="btn btn-success w-100 h-100" onClick={handleAgregarMascotaFicha}><FontAwesomeIcon icon={faSave}/></button></div>
                                         </div>
                                     </div>
                                 )}
-                                <div className="row g-3 overflow-auto" style={{ maxHeight: '450px' }}>{mascotas.filter(m => m.dueno_id === clienteSeleccionado.id).map(m => (<div key={m.id} className="col-md-6"><div className="card border-0 shadow-sm rounded-5 p-4 bg-light border-start border-5 border-info h-100"><div className="d-flex justify-content-between align-items-start mb-3"><div className="bg-info bg-opacity-10 p-3 rounded-4 text-info"><FontAwesomeIcon icon={faPaw} size="2x" /></div><button className="btn btn-white btn-sm rounded-circle border shadow-sm" onClick={() => { setItemEliminar({id: m.id, tipo: 'mascota'}); setShowConfirm(true); }}><FontAwesomeIcon icon={faTrash} className="text-danger"/></button></div><h4 className="fw-bold mb-1">{m.nombre}</h4><div className="text-muted fw-bold small text-uppercase">{m.especie} • {m.raza || 'Mestizo'}</div></div></div>))}</div>
+                                <div className="row g-3 overflow-auto" style={{ maxHeight: '450px' }}>
+                                    {mascotas.filter(m => m.dueno_id === clienteSeleccionado.id).map(m => (
+                                        <div key={m.id} className="col-md-6">
+                                            <div className="card border-0 shadow-sm rounded-4 p-4 bg-light border-start border-5 border-info h-100">
+                                                <div className="d-flex justify-content-between align-items-start mb-3"><div className="bg-info bg-opacity-10 p-3 rounded-4 text-info"><FontAwesomeIcon icon={faPaw} size="2x" /></div><button className="btn btn-light rounded-circle shadow-sm" onClick={() => { setItemEliminar({id: m.id, tipo: 'mascota'}); setShowConfirm(true); }}><FontAwesomeIcon icon={faTrash} className="text-danger"/></button></div>
+                                                <h4 className="fw-bold mb-1">{m.nombre}</h4>
+                                                <div className="text-muted fw-bold small text-uppercase">{m.especie} • {m.raza || 'Mestizo'}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -291,12 +373,12 @@ const ClientesPage = () => {
             </div>
         )}
 
-        {/* MODAL ALTA UNIFICADA */}
+        {/* MODAL REGISTRO */}
         {showDuenoModal && (
             <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1100 }}>
                 <div className="modal-dialog modal-dialog-centered modal-lg">
                     <form className="modal-content rounded-5 border-0 shadow-2xl bg-white overflow-hidden text-dark" onSubmit={handleGuardarAltaUnificada}>
-                        <div className="p-4 text-center text-white" style={{ background: 'linear-gradient(45deg, #6a11cb, #2575fc)' }}><h3 className="fw-black mb-0">REGISTRO OBLIGATORIO</h3></div>
+                        <div className="p-4 text-center text-white" style={{ background: 'linear-gradient(45deg, #6a11cb, #2575fc)' }}><h3 className="fw-black mb-0">REGISTRO DE CLIENTE</h3></div>
                         <div className="modal-body p-4" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
                             <h6 className="text-primary fw-bold mb-3 border-bottom pb-2">DATOS DEL RESPONSABLE</h6>
                             <div className="row g-3 mb-4">
@@ -307,13 +389,13 @@ const ClientesPage = () => {
                             </div>
                             {!datosEdicion && (
                                 <>
-                                    <div className="d-flex justify-content-between align-items-center mb-3 border-bottom pb-2"><h6>PACIENTES *</h6><button type="button" className="btn btn-sm btn-outline-info rounded-pill px-3" onClick={agregarCampoMascota}><FontAwesomeIcon icon={faPlusCircle} /> Otra mascota</button></div>
+                                    <div className="d-flex justify-content-between align-items-center mb-3 border-bottom pb-2"><h6>PACIENTES *</h6><button type="button" className="btn btn-sm btn-outline-info rounded-pill px-3 fw-bold" onClick={agregarCampoMascota}><FontAwesomeIcon icon={faPlusCircle} /> Agregar otra</button></div>
                                     {listaMascotasAlta.map((m, index) => (
-                                        <div key={index} className="p-3 rounded-4 mb-3 border" style={{ background: 'rgba(0, 210, 255, 0.05)' }}>
+                                        <div key={index} className="p-3 rounded-4 mb-3 border bg-light">
                                             <div className="row g-2">
                                                 <div className="col-md-4"><label className="x-small fw-bold">NOMBRE *</label><input type="text" className="form-control" value={m.nombre} onChange={e => actualizarMascotaAlta(index, 'nombre', e.target.value)} required /></div>
                                                 <div className="col-md-4"><label className="x-small fw-bold">ESPECIE</label><select className="form-select" value={m.especie} onChange={e => actualizarMascotaAlta(index, 'especie', e.target.value)}><option value="Perro">Perro 🐶</option><option value="Gato">Gato 🐱</option><option value="Otro">Otro 🐾</option></select></div>
-                                                <div className="col-md-4"><label className="x-small fw-bold">RAZA</label><input type="text" className="form-control" value={m.raza} onChange={e => actualizarMascotaAlta(index, 'raza', e.target.value)} /></div>
+                                                <div className="col-md-4"><label className="x-small fw-bold">RAZA</label><div className="d-flex gap-2"><input type="text" className="form-control" value={m.raza} onChange={e => actualizarMascotaAlta(index, 'raza', e.target.value)} />{listaMascotasAlta.length > 1 && <button type="button" className="btn btn-outline-danger btn-sm border-0" onClick={() => quitarCampoMascota(index)}><FontAwesomeIcon icon={faTimes}/></button>}</div></div>
                                             </div>
                                         </div>
                                     ))}
@@ -326,7 +408,7 @@ const ClientesPage = () => {
             </div>
         )}
 
-        <ConfirmModal show={showConfirm} onClose={() => setShowConfirm(false)} onConfirm={confirmarEliminar} title="¿CONFIRMAS?" message="Esta acción es irreversible." />
+        <ConfirmModal show={showConfirm} onClose={() => setShowConfirm(false)} onConfirm={confirmarEliminar} title="¿ESTÁS SEGURO?" message="Esta acción moverá el registro a la papelera." />
       </div>
     </div>
   );
