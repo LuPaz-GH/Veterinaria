@@ -17,6 +17,9 @@ router.get('/papelera/:categoria', authMiddleware, productoController.getPapeler
 // Ruta para restaurar un producto de la papelera
 router.put('/restaurar/:id', authMiddleware, productoController.restaurarProducto);
 
+// NUEVA: Ruta para eliminar permanentemente un producto
+router.delete('/papelera/:id', authMiddleware, productoController.eliminarProductoPermanente);
+
 // ---------------------------------------------------------
 
 // 2. NUEVA RUTA DE BÚSQUEDA
@@ -36,7 +39,6 @@ router.get('/buscar', async (req, res) => {
 });
 
 // 3. RUTAS CON PARÁMETROS DINÁMICOS (AL FINAL DE LOS GETS)
-// Importante: Esta ruta se movió después de /papelera para evitar conflictos
 router.get('/:categoria', productoController.getPorCategoria);
 
 // 4. RUTAS DE CREACIÓN Y EDICIÓN

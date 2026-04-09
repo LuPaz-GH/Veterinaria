@@ -4,7 +4,7 @@ import {
   faUser, faPaw, faPlus, faEdit, faTrash, faSearch, 
   faIdCard, faPhoneAlt, faMapMarkerAlt, faChevronRight, faUserPlus, faInfoCircle, faSpinner, faTimes, faArrowRight,
   faThLarge, faList, faPrint, faChevronLeft, faDog, faPlusCircle, faSave, faArrowLeft, faTrashRestore, faHistory,
-  faFilePdf, faFileExcel // Nuevos íconos
+  faFilePdf, faFileExcel, faTrashCan
 } from '@fortawesome/free-solid-svg-icons';
 import ConfirmModal from '../component/ConfirmModal'; 
 import api from '../services/api';
@@ -35,6 +35,14 @@ const ClientesPage = () => {
   const [formDueno, setFormDueno] = useState({ nombre: '', dni: '', telefono: '', direccion: '' });
   const [listaMascotasAlta, setListaMascotasAlta] = useState([{ nombre: '', especie: 'Perro', raza: '' }]);
   const [nuevaMascotaExtra, setNuevaMascotaExtra] = useState({ nombre: '', especie: 'Perro', raza: '' });
+
+  // Estados para borrado permanente
+  const [showConfirmPermanente, setShowConfirmPermanente] = useState(false);
+  const [itemPermanente, setItemPermanente] = useState({ id: null, tipo: '', nombre: '' });
+
+  // NUEVOS ESTADOS PARA NOTIFICACIÓN LINDA
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   const cargarDatos = async () => {
     setLoading(true);
@@ -67,6 +75,32 @@ const ClientesPage = () => {
       cargarDatos();
       cargarPapelera();
     } catch (err) { alert("No se pudo restaurar."); }
+  };
+
+  const confirmarBorrarPermanente = (id, tipo, nombre) => {
+    setItemPermanente({ id, tipo, nombre });
+    setShowConfirmPermanente(true);
+  };
+
+  const borrarPermanente = async () => {
+    try {
+      const url = itemPermanente.tipo === 'dueño' 
+        ? `/duenos/${itemPermanente.id}/permanente`
+        : `/mascotas/${itemPermanente.id}/permanente`;
+
+      await api.delete(url);
+      
+      // REEMPLAZO DE ALERT POR MODAL LINDO
+      setSuccessMessage(`✅ ${itemPermanente.tipo.toUpperCase()} "${itemPermanente.nombre}" eliminado permanentemente.`);
+      setShowConfirmPermanente(false);
+      setShowSuccessModal(true);
+      
+      cargarPapelera();
+      cargarDatos();
+    } catch (err) {
+      console.error(err);
+      alert("❌ Error al eliminar permanentemente. Revisa la consola.");
+    }
   };
 
   const agregarCampoMascota = () => {
@@ -111,9 +145,17 @@ const ClientesPage = () => {
       if (datosEdicion) {
         await api.put(`/duenos/${datosEdicion.id}`, formDueno);
       } else {
-        const resD = await api.post('/duenos', formDueno);
+        const payload = {
+          ...formDueno,
+          mascotas: mascotasValidas
+        };
+        const resD = await api.post('/duenos', payload);
         const nuevoDuenoId = resD.data.id;
-        await Promise.all(mascotasValidas.map(m => api.post('/mascotas', { ...m, dueno_id: nuevoDuenoId })));
+        if (mascotasValidas.length > 0) {
+          await Promise.all(mascotasValidas.map(m => 
+            api.post('/mascotas', { ...m, dueno_id: nuevoDuenoId })
+          ));
+        }
       }
       setShowDuenoModal(false);
       cargarDatos();
@@ -121,6 +163,7 @@ const ClientesPage = () => {
         if (err.response && err.response.status === 409) {
             alert("⚠️ Atención: Ya existe un cliente registrado con ese DNI o Nombre.");
         } else {
+            console.error(err);
             alert("Error al procesar el registro."); 
         }
     }
@@ -196,7 +239,6 @@ const ClientesPage = () => {
           <h1 className="text-white fw-black display-4 mb-0" style={{ textShadow: '0 10px 20px rgba(0,0,0,0.4)', letterSpacing: '-2px' }}>Clientes <span style={{ color: '#ff69b4' }}>&</span> Pacientes</h1>
           
           <div className="d-flex gap-2 align-items-center">
-              {/* BOTONES DE EXPORTACIÓN AGREGADOS */}
               <button className="btn btn-danger rounded-pill px-3 fw-bold shadow-lg text-white" onClick={exportarPDFGeneral} title="Exportar a PDF">
                 <FontAwesomeIcon icon={faFilePdf} className="me-1" /> PDF
               </button>
@@ -277,7 +319,6 @@ const ClientesPage = () => {
                 </div>
             )}
 
-            {/* PAGINACIÓN */}
             {totalPaginas > 1 && (
                 <div className="d-flex justify-content-center mt-5 gap-2 pb-5">
                     <button className="btn btn-light rounded-pill px-4 shadow-sm fw-bold" disabled={paginaActual === 1} onClick={() => setPaginaActual(paginaActual - 1)}>
@@ -296,7 +337,7 @@ const ClientesPage = () => {
           </>
         )}
 
-        {/* MODAL PAPELERA */}
+        {/* ==================== MODAL PAPELERA (z-index 1200) ==================== */}
         {showPapelera && (
             <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(10px)', zIndex: 1200 }}>
                 <div className="modal-dialog modal-lg modal-dialog-centered">
@@ -306,22 +347,76 @@ const ClientesPage = () => {
                         </div>
                         <div className="modal-body p-4" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
                             <table className="table table-hover align-middle text-dark">
-                                <thead className="bg-light"><tr><th>Nombre</th><th>Tipo</th><th className="text-center">Borrado por</th><th>Fecha</th><th className="text-center">Restaurar</th></tr></thead>
+                                <thead className="bg-light">
+                                    <tr>
+                                        <th>Nombre</th>
+                                        <th>Tipo</th>
+                                        <th className="text-center">Borrado por</th>
+                                        <th>Fecha</th>
+                                        <th className="text-center">Restaurar</th>
+                                        <th className="text-center">Eliminar</th>
+                                    </tr>
+                                </thead>
                                 <tbody>
-                                    {eliminados.length === 0 ? <tr><td colSpan="5" className="text-center py-5 text-muted small">La papelera está vacía</td></tr> : eliminados.map(e => (
-                                        <tr key={`${e.tipoPapelera}-${e.id}`}>
-                                            <td><div className="fw-bold">{e.nombre}</div><small className="text-muted">{e.dni ? `DNI: ${e.dni}` : e.raza}</small></td>
-                                            <td><span className={`badge ${e.tipoPapelera === 'dueño' ? 'bg-primary' : 'bg-info'}`}>{e.tipoPapelera.toUpperCase()}</span></td>
-                                            <td className="text-center"><span className="badge bg-light text-dark border">{e.responsable_borrado || 'Sistema'}</span></td>
-                                            <td><small>{new Date(e.fecha_borrado).toLocaleString('es-AR')}</small></td>
-                                            <td className="text-center"><button className="btn btn-success rounded-circle shadow-sm" style={{width:'40px', height:'40px'}} onClick={() => restaurarItem(e.id, e.tipoPapelera)}><FontAwesomeIcon icon={faTrashRestore} /></button></td>
+                                    {eliminados.length === 0 ? (
+                                        <tr>
+                                            <td colSpan="6" className="text-center py-5 text-muted small">La papelera está vacía</td>
                                         </tr>
-                                    ))}
+                                    ) : (
+                                        eliminados.map(e => (
+                                            <tr key={`${e.tipoPapelera}-${e.id}`}>
+                                                <td>
+                                                    <div className="fw-bold">{e.nombre}</div>
+                                                    <small className="text-muted">{e.dni ? `DNI: ${e.dni}` : e.raza}</small>
+                                                </td>
+                                                <td>
+                                                    <span className={`badge ${e.tipoPapelera === 'dueño' ? 'bg-primary' : 'bg-info'}`}>
+                                                        {e.tipoPapelera.toUpperCase()}
+                                                    </span>
+                                                </td>
+                                                <td className="text-center">
+                                                    <span className="badge bg-light text-dark border">{e.responsable_borrado || 'Sistema'}</span>
+                                                </td>
+                                                <td><small>{new Date(e.fecha_borrado).toLocaleString('es-AR')}</small></td>
+                                                <td className="text-center">
+                                                    <button 
+                                                        className="btn btn-success rounded-circle shadow-sm" 
+                                                        style={{width:'40px', height:'40px'}} 
+                                                        onClick={(ev) => { ev.stopPropagation(); restaurarItem(e.id, e.tipoPapelera); }}
+                                                    >
+                                                        <FontAwesomeIcon icon={faTrashRestore} />
+                                                    </button>
+                                                </td>
+                                                <td className="text-center">
+                                                    <button 
+                                                        className="btn btn-danger rounded-circle shadow-sm" 
+                                                        style={{width:'40px', height:'40px'}} 
+                                                        onClick={(ev) => { 
+                                                          ev.stopPropagation(); 
+                                                          confirmarBorrarPermanente(e.id, e.tipoPapelera, e.nombre); 
+                                                        }}
+                                                    >
+                                                        <FontAwesomeIcon icon={faTrashCan} />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
                                 </tbody>
                             </table>
                         </div>
                         <div className="modal-footer justify-content-center border-0 pb-4 bg-white">
-                            <button className="btn text-white px-5 py-2 fw-bold" style={{ backgroundColor: '#2C3E50', borderRadius: '25px' }} onClick={() => setShowPapelera(false)}>CERRAR</button>
+                            <button 
+                                className="btn text-white px-5 py-2 fw-bold" 
+                                style={{ backgroundColor: '#2C3E50', borderRadius: '25px' }} 
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  setShowConfirmPermanente(false); // Limpiamos por si acaso
+                                  setShowPapelera(false);
+                                }}
+                            >
+                                CERRAR
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -409,6 +504,28 @@ const ClientesPage = () => {
         )}
 
         <ConfirmModal show={showConfirm} onClose={() => setShowConfirm(false)} onConfirm={confirmarEliminar} title="¿ESTÁS SEGURO?" message="Esta acción moverá el registro a la papelera." />
+
+        <ConfirmModal 
+          show={showConfirmPermanente} 
+          onClose={() => setShowConfirmPermanente(false)} 
+          onConfirm={borrarPermanente} 
+          title="¿ELIMINAR PERMANENTEMENTE?" 
+          message={`Esta acción eliminará para siempre "${itemPermanente.nombre}". No se podrá recuperar.`} 
+          style={{ zIndex: 4000 }} 
+        />
+
+        {/* NUEVO MODAL DE ÉXITO (PARA REEMPLAZAR EL ALERT) */}
+        <ConfirmModal 
+          show={showSuccessModal} 
+          onClose={() => setShowSuccessModal(false)} 
+          onConfirm={() => setShowSuccessModal(false)} 
+          title="¡OPERACIÓN EXITOSA!" 
+          message={successMessage} 
+          confirmText="ACEPTAR"
+          confirmColor="success" 
+          showCancel={false}
+          style={{ zIndex: 5000 }} 
+        />
       </div>
     </div>
   );

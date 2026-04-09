@@ -5,7 +5,6 @@ const productoService = {
     getByCategoria: async (categoria, pagina = 1, limite = 12) => {
         try {
             const offset = (pagina - 1) * limite;
-            // Normalizamos la categoría para evitar errores de mayúsculas/minúsculas
             const catNormalizada = categoria ? categoria.toString().toLowerCase().trim() : '';
             console.log(`🔍 [getByCategoria] Buscando categoría: "${catNormalizada}" | Página: ${pagina} | Límite: ${limite}`);
             
@@ -20,7 +19,6 @@ const productoService = {
             `;
             const params = [];
             
-            // Solo agregamos el filtro de categoría si es válida
             if (catNormalizada && ['petshop', 'alimentos', 'medicamentos', 'otros'].includes(catNormalizada)) {
                 query += ` AND p.categoria = ?`;
                 params.push(catNormalizada);
@@ -34,7 +32,6 @@ const productoService = {
             
             const [rows] = await pool.query(query, params);
             
-            // Contamos el total para paginación
             let countQuery = `
                 SELECT COUNT(*) as total 
                 FROM productos p 
@@ -48,8 +45,6 @@ const productoService = {
             
             const [[{ total }]] = await pool.query(countQuery, countParams);
             
-            console.log(`✅ [getByCategoria] Encontrados ${rows.length} productos de ${total} totales para categoría "${catNormalizada}"`);
-            
             return {
                 productos: rows,
                 total: Number(total),
@@ -59,7 +54,6 @@ const productoService = {
             };
         } catch (error) {
             console.error("❌ Error SQL en getByCategoria:", error.message);
-            if (error.sql) console.error("Query que falló:", error.sql);
             throw error;
         }
     },
@@ -174,7 +168,6 @@ const productoService = {
         }
     },
 
-    // NUEVA FUNCIÓN: Obtener productos eliminados (Papelera)
     getEliminadosByCategoria: async (categoria) => {
         const [rows] = await pool.query(`
             SELECT p.*, e.nombre as responsable_borrado
@@ -186,13 +179,33 @@ const productoService = {
         return rows;
     },
 
-    // NUEVA FUNCIÓN: Restaurar producto
     restaurar: async (id) => {
         const [result] = await pool.query(
             'UPDATE productos SET activo = 1, borrado_por = NULL, fecha_borrado = NULL WHERE id = ?',
             [id]
         );
         return result.affectedRows > 0;
+    },
+
+    // FUNCIÓN PARA ELIMINAR FÍSICAMENTE EL PRODUCTO
+    eliminarPermanente: async (id) => {
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+            // Borrar primero de tablas relacionadas (Foreign Keys)
+            await connection.query('DELETE FROM alimentos WHERE producto_id = ?', [id]);
+            await connection.query('DELETE FROM medicamentos WHERE producto_id = ?', [id]);
+            // Borrar el producto base
+            const [result] = await connection.query('DELETE FROM productos WHERE id = ?', [id]);
+            
+            await connection.commit();
+            return result.affectedRows > 0;
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
     },
 
     getHistorialMovimientos: async (filtros = {}) => {
@@ -227,15 +240,8 @@ const productoService = {
             baseQuery += ` AND eliminado = 0`;
         }
         
-        if (fechaDesde) {
-            baseQuery += ` AND fecha >= ?`;
-            params.push(`${fechaDesde} 00:00:00`);
-        }
-        
-        if (fechaHasta) {
-            baseQuery += ` AND fecha <= ?`;
-            params.push(`${fechaHasta} 23:59:59`);
-        }
+        if (fechaDesde) { baseQuery += ` AND fecha >= ?`; params.push(`${fechaDesde} 00:00:00`); }
+        if (fechaHasta) { baseQuery += ` AND fecha <= ?`; params.push(`${fechaHasta} 23:59:59`); }
         
         const [countRes] = await pool.query(`SELECT COUNT(*) as total FROM (${baseQuery}) as t`, params);
         const total = countRes[0].total;

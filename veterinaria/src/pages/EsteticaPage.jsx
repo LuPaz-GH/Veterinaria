@@ -11,10 +11,12 @@ import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import api from '../services/api';
+import ConfirmModal from '../component/ConfirmModal'; // ← Importamos tu componente de confirmación lindo
 
 const EsteticaPage = () => {
     const [servicios, setServicios] = useState([]);
-    const [serviciosEliminados, setServiciosEliminados] = useState([]); // Estado para papelera
+    const [serviciosEliminados, setServiciosEliminados] = useState([]); 
+    const [busquedaPapelera, setBusquedaPapelera] = useState(''); // ← Estado para buscar en papelera
     const [mascotas, setMascotas] = useState([]);
     const [loadingMascotas, setLoadingMascotas] = useState(false);
     const [busqueda, setBusqueda] = useState('');
@@ -25,13 +27,18 @@ const EsteticaPage = () => {
     const [totalTurnos, setTotalTurnos] = useState(0);
     const limite = 20;
     const [showModal, setShowModal] = useState(false);
-    const [showPapelera, setShowPapelera] = useState(false); // Control modal papelera
+    const [showPapelera, setShowPapelera] = useState(false); 
     const [showFinalizar, setShowFinalizar] = useState(false);
     const [turnoAfinalizar, setTurnoAfinalizar] = useState(null);
     const [datosEdicion, setDatosEdicion] = useState(null);
     const [loading, setLoading] = useState(true);
     const [notificacion, setNotificacion] = useState({ show: false, mensaje: '', tipo: 'success' });
     const [confirmacion, setConfirmacion] = useState({ show: false, id: null, mensaje: '', nombreMascota: '' });
+    
+    // ESTADOS PARA BORRADO PERMANENTE
+    const [showConfirmPermanent, setShowConfirmPermanent] = useState(false);
+    const [idToPermanentDelete, setIdToPermanentDelete] = useState(null);
+
     const [formData, setFormData] = useState({
         mascota_id: '',
         tipo_servicio: 'Baño y Corte Completo',
@@ -70,7 +77,6 @@ const EsteticaPage = () => {
                 query += `&fecha=${fechaPersonalizada}`;
             }
             const res = await api.get(`/estetica${query}`);
-            console.log('✂️ Respuesta de estética:', res.data);
             setServicios(res.data.data || res.data || []);
             setTotalPaginas(res.data.totalPaginas || Math.ceil((res.data.total || 0) / limite) || 1);
             setTotalTurnos(res.data.total || 0);
@@ -100,6 +106,19 @@ const EsteticaPage = () => {
             cargarDatos();
         } catch (err) {
             mostrarAviso("❌ Error al restaurar", "error");
+        }
+    };
+
+    const handleConfirmarEliminarPermanente = async () => {
+        if (!idToPermanentDelete) return;
+        try {
+            await api.delete(`/turnos/papelera/${idToPermanentDelete}`);
+            mostrarAviso("🗑️ Turno eliminado definitivamente", "success");
+            setShowConfirmPermanent(false);
+            setIdToPermanentDelete(null);
+            cargarPapelera();
+        } catch (err) {
+            mostrarAviso("❌ Error al eliminar el registro", "error");
         }
     };
 
@@ -162,6 +181,14 @@ const EsteticaPage = () => {
         }).sort((a, b) => new Date(a.fecha + 'T' + a.hora) - new Date(b.fecha + 'T' + b.hora));
     };
 
+    // FILTRO PARA EL BUSCADOR DE LA PAPELERA
+    const obtenerPapeleraFiltrada = () => {
+        return serviciosEliminados.filter(e => 
+            (e.mascota_nombre || e.mascota || '').toLowerCase().includes(busquedaPapelera.toLowerCase()) ||
+            (e.dueno_nombre || e.dueno || '').toLowerCase().includes(busquedaPapelera.toLowerCase())
+        );
+    };
+
     const agruparPorFecha = (turnos) => {
         const grupos = {};
         turnos.forEach(t => {
@@ -195,7 +222,6 @@ const EsteticaPage = () => {
         return paginas;
     }, [pagina, totalPaginas]);
 
-    // Funciones de exportación
     const exportarExcel = () => {
         const data = obtenerTurnosFiltradosYOrdenados().map(s => ({
             Fecha: s.fecha, Hora: s.hora, Mascota: s.mascota, Dueño: s.dueno, Servicio: s.servicio
@@ -292,67 +318,53 @@ const EsteticaPage = () => {
 
     const exportarTicketEstetica = (s) => {
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [80, 180] });
-        
         doc.setFillColor(128, 0, 128);
         doc.rect(0, 0, 80, 35, 'F');
-        
         doc.setFont("helvetica", "bold");
         doc.setFontSize(11);
         doc.setTextColor(255);
         doc.text("PELUQUERIA CANINA", 40, 18, { align: "center" });
         doc.setFontSize(9);
         doc.text("MALFI ESTÉTICA", 40, 27, { align: "center" });
-
         doc.setTextColor(40);
         doc.setFontSize(11);
         doc.text("COMPROBANTE DE TURNO", 40, 48, { align: "center" });
-        
         doc.setDrawColor(200);
         doc.line(8, 53, 72, 53);
-
         let y = 65;
         doc.setFontSize(10);
-
         doc.setFont("helvetica", "bold");
         doc.text("Paciente:", 10, y);
         doc.setFont("helvetica", "normal");
         doc.text(String(s.mascota || s.mascota_nombre || ''), 32, y);
         y += 9;
-
         doc.setFont("helvetica", "bold");
         doc.text("Dueño:", 10, y);
         doc.setFont("helvetica", "normal");
         doc.text(String(s.dueno || s.dueno_nombre || ''), 32, y);
         y += 9;
-
         doc.setFont("helvetica", "bold");
         doc.text("Servicio:", 10, y);
         doc.setFont("helvetica", "normal");
         doc.text(String(s.servicio || s.tipo_servicio || ''), 32, y);
         y += 9;
-
         doc.setFont("helvetica", "bold");
         doc.text("Fecha:", 10, y);
         doc.setFont("helvetica", "normal");
         doc.text(s.fecha ? new Date(s.fecha).toLocaleDateString('es-AR') : 'No registrada', 32, y);
         y += 9;
-
         doc.setFont("helvetica", "bold");
         doc.text("Hora:", 10, y);
         doc.setFont("helvetica", "normal");
         doc.text(s.hora ? s.hora + " hs" : 'No registrada', 32, y);
         y += 9;
-
         doc.setDrawColor(200);
         doc.line(10, y + 5, 70, y + 5);
-        
         doc.setFontSize(8);
         doc.setTextColor(100);
         doc.text("-----------------------------------------------", 40, y + 15, { align: "center" });
-        
         doc.setFontSize(9);
         doc.text("¡Gracias por elegir Malfi!", 40, y + 25, { align: "center" });
-
         doc.save(`Ticket_${s.mascota || s.mascota_nombre || 'Turno'}.pdf`);
     };
 
@@ -535,7 +547,6 @@ const EsteticaPage = () => {
                             </div>
                         ))}
 
-                        {/* PAGINACIÓN MEJORADA - SIEMPRE ABAJO */}
                         {totalPaginas > 1 && (
                             <div className="d-flex justify-content-center align-items-center gap-3 mt-5 mb-5">
                                 <button className="btn btn-light rounded-circle shadow-sm px-3 py-2" onClick={irAPrimeraPagina} disabled={pagina === 1}>
@@ -544,7 +555,6 @@ const EsteticaPage = () => {
                                 <button className="btn btn-light rounded-pill px-4 py-2 shadow-sm" onClick={paginaAnterior} disabled={pagina === 1}>
                                     <FontAwesomeIcon icon={faChevronLeft} className="me-2" /> Anterior
                                 </button>
-
                                 <div className="d-flex gap-2 mx-4">
                                     {numerosDePagina.map(num => (
                                         <button 
@@ -557,7 +567,6 @@ const EsteticaPage = () => {
                                         </button>
                                     ))}
                                 </div>
-
                                 <button className="btn btn-light rounded-pill px-4 py-2 shadow-sm" onClick={paginaSiguiente} disabled={pagina === totalPaginas}>
                                     Siguiente <FontAwesomeIcon icon={faChevronRight} className="ms-2" />
                                 </button>
@@ -569,41 +578,54 @@ const EsteticaPage = () => {
                     </>
                 )}
 
-                {/* MODAL PAPELERA */}
+                {/* MODAL PAPELERA REDISEÑADO CON BUSCADOR Y BORRADO DEFINITIVO */}
                 {showPapelera && (
                     <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 3000 }}>
-                        <div className="modal-dialog modal-lg modal-dialog-centered">
+                        <div className="modal-dialog modal-xl modal-dialog-centered">
                             <div className="modal-content border-0 shadow-2xl" style={{ borderRadius: '40px', overflow: 'hidden' }}>
                                 <div className="text-center p-4 text-white" style={{ backgroundColor: '#D82F43' }}>
                                     <h3 className="fw-bold m-0 text-uppercase"><FontAwesomeIcon icon={faHistory} className="me-2" /> Papelera de Estética</h3>
                                 </div>
                                 <div className="modal-body p-4 bg-white text-dark">
-                                    <div className="table-responsive">
+                                    {/* BUSCADOR DE PAPELERA */}
+                                    <div className="mb-4 d-flex justify-content-center">
+                                        <div className="input-group shadow-sm rounded-pill overflow-hidden bg-light border w-50">
+                                            <span className="input-group-text bg-transparent border-0 ps-3 text-muted"><FontAwesomeIcon icon={faSearch} /></span>
+                                            <input 
+                                                type="text" 
+                                                className="form-control border-0 py-2 bg-light" 
+                                                placeholder="Buscar en papelera..." 
+                                                value={busquedaPapelera} 
+                                                onChange={(e) => setBusquedaPapelera(e.target.value)} 
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="table-responsive" style={{ maxHeight: '400px', overflowY: 'auto' }}>
                                         <table className="table table-hover align-middle">
-                                            <thead className="bg-light">
+                                            <thead className="bg-light sticky-top">
                                                 <tr>
-                                                    <th>Nombre</th>
+                                                    <th className="ps-3">Nombre</th>
                                                     <th>Tipo</th>
                                                     <th className="text-center">Borrado por</th>
                                                     <th>Fecha</th>
                                                     <th className="text-center">Restaurar</th>
+                                                    <th className="text-center">Eliminar</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {serviciosEliminados.length === 0 ? (
+                                                {obtenerPapeleraFiltrada().length === 0 ? (
                                                     <tr>
-                                                        <td colSpan="5" className="text-center py-5 text-muted small">La papelera está vacía</td>
+                                                        <td colSpan="6" className="text-center py-5 text-muted fw-bold">La papelera está vacía</td>
                                                     </tr>
                                                 ) : (
-                                                    serviciosEliminados.map(e => (
+                                                    obtenerPapeleraFiltrada().map(e => (
                                                         <tr key={e.id}>
-                                                            <td>
+                                                            <td className="ps-3">
                                                                 <div className="fw-bold">{e.mascota_nombre || e.mascota}</div>
                                                                 {e.dueno_nombre && <small className="text-muted">Dueño: {e.dueno_nombre}</small>}
                                                             </td>
-                                                            <td>
-                                                                <span className="badge rounded-pill bg-primary px-3 py-2 text-uppercase">Turno</span>
-                                                            </td>
+                                                            <td><span className="badge rounded-pill bg-primary px-3 py-2 text-uppercase">Turno</span></td>
                                                             <td className="text-center">
                                                                 <span className="badge bg-light text-dark border px-3 py-2" style={{ borderRadius: '8px' }}>
                                                                     {e.responsable_borrado || e.borrado_por || 'Sistema'}
@@ -615,6 +637,11 @@ const EsteticaPage = () => {
                                                                     <FontAwesomeIcon icon={faTrashRestore} />
                                                                 </button>
                                                             </td>
+                                                            <td className="text-center">
+                                                                <button className="btn btn-danger rounded-circle shadow-sm" style={{ width: '40px', height: '40px' }} onClick={() => { setIdToPermanentDelete(e.id); setShowConfirmPermanent(true); }}>
+                                                                    <FontAwesomeIcon icon={faTrash} />
+                                                                </button>
+                                                            </td>
                                                         </tr>
                                                     ))
                                                 )}
@@ -623,14 +650,14 @@ const EsteticaPage = () => {
                                     </div>
                                 </div>
                                 <div className="modal-footer justify-content-center border-0 pb-4 bg-white">
-                                    <button className="btn text-white px-5 py-2 fw-bold shadow" style={{ backgroundColor: '#2C3E50', borderRadius: '25px' }} onClick={() => setShowPapelera(false)}>CERRAR</button>
+                                    <button className="btn text-white px-5 py-2 fw-bold shadow" style={{ backgroundColor: '#2C3E50', borderRadius: '25px' }} onClick={() => { setShowPapelera(false); setBusquedaPapelera(''); }}>CERRAR</button>
                                 </div>
                             </div>
                         </div>
                     </div>
                 )}
 
-                {/* MODAL NUEVO TURNO / EDICIÓN */}
+                {/* MODALES EXTRAS (NUEVO, FINALIZAR, CONFIRMACIONES) */}
                 {showModal && (
                     <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 2000 }}>
                         <div className="modal-dialog modal-dialog-centered text-dark">
@@ -662,7 +689,6 @@ const EsteticaPage = () => {
                     </div>
                 )}
 
-                {/* MODAL FINALIZAR TRABAJO */}
                 {showFinalizar && (
                     <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 2000 }}>
                         <div className="modal-dialog modal-dialog-centered text-dark">
@@ -695,27 +721,33 @@ const EsteticaPage = () => {
                     </div>
                 )}
 
-                {/* MODAL CONFIRMAR ELIMINAR */}
-                {confirmacion.show && (
-                    <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 3000 }}>
-                        <div className="modal-dialog modal-dialog-centered text-dark">
-                            <div className="modal-content p-4 text-center rounded-4 border-0 shadow-lg">
-                                <FontAwesomeIcon icon={faExclamationTriangle} size="4x" className="text-danger mb-3" />
-                                <h3 className="fw-bold">¿Mover a la papelera?</h3>
-                                <p className="text-muted">Turno de: <strong>{confirmacion.nombreMascota}</strong></p>
-                                <div className="d-flex gap-2 mt-3">
-                                    <button className="btn btn-light w-100 rounded-pill fw-bold" onClick={() => setConfirmacion({ show: false })}>CANCELAR</button>
-                                    <button className="btn btn-danger w-100 rounded-pill fw-bold shadow" onClick={async () => {
-                                        await api.delete(`/estetica/${confirmacion.id}`);
-                                        setConfirmacion({ show: false });
-                                        cargarDatos();
-                                        mostrarAviso("🗑️ Turno enviado a la papelera", "success");
-                                    }}>ELIMINAR</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                {/* MODALES DE CONFIRMACIÓN CON COMPONENTE LINDO */}
+                <ConfirmModal 
+                    show={confirmacion.show} 
+                    onClose={() => setConfirmacion({ show: false })} 
+                    onConfirm={async () => {
+                        await api.delete(`/estetica/${confirmacion.id}`);
+                        setConfirmacion({ show: false });
+                        cargarDatos();
+                        mostrarAviso("🗑️ Turno enviado a la papelera", "success");
+                    }} 
+                    title="¿Mover a la papelera?" 
+                    message={`El turno de ${confirmacion.nombreMascota} se moverá a la papelera.`}
+                    confirmText="Mover a papelera"
+                    cancelText="Cancelar"
+                    confirmColor="danger"
+                />
+
+                <ConfirmModal 
+                    show={showConfirmPermanent} 
+                    onClose={() => setShowConfirmPermanent(false)} 
+                    onConfirm={handleConfirmarEliminarPermanente} 
+                    title="¿Eliminar permanentemente?" 
+                    message="Esta acción no se puede deshacer. El turno se borrará por completo de la base de datos." 
+                    confirmText="Sí, eliminar para siempre" 
+                    cancelText="Cancelar" 
+                    confirmColor="danger" 
+                />
             </div>
 
             <style>{`

@@ -3,11 +3,11 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faHistory, faUser, faCalendarAlt, faSyncAlt,
   faPlusCircle, faEdit, faTrashAlt, faSearch,
-  faSort, faFilePdf, faFileExcel, faFileInvoice,
+  faSort, faFilePdf, faFileExcel,
   faTimes, faExclamationTriangle, faCheckCircle,
-  faInfoCircle, faUndo, faEye, faEyeSlash,
-  faPaw, faWallet, faUsers, faScissors, faBox,
-  faHeartbeat, faUserTie
+  faInfoCircle, faUndo, faPaw, faWallet, faUsers, 
+  faScissors, faBox, faHeartbeat, faUserTie, faTrash,
+  faTrashRestore
 } from '@fortawesome/free-solid-svg-icons';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -16,7 +16,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 
-const AuditoriaPage = () => {
+const AuditoriaPage = ({ user }) => {
   const [movimientos, setMovimientos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [totalRegistros, setTotalRegistros] = useState(0);
@@ -38,7 +38,17 @@ const AuditoriaPage = () => {
     producto: '', categoria: '', precio_venta: '', stock: ''
   });
 
-  // URL de la imagen de fondo: Usamos una de alta calidad que contraste con el azul
+  // Papelera
+  const [showPapeleraModal, setShowPapeleraModal] = useState(false);
+  const [papeleraItems, setPapeleraItems] = useState([]);
+  const [loadingPapelera, setLoadingPapelera] = useState(false);
+  const [paginaPapelera, setPaginaPapelera] = useState(1);
+  const itemsPorPaginaPapelera = 10;
+
+  // Estado para confirmación de borrado permanente
+  const [showBorrarPermanenteModal, setShowBorrarPermanenteModal] = useState(false);
+  const [itemBorrarPermanente, setItemBorrarPermanente] = useState(null);
+
   const backgroundImage = "https://images.unsplash.com/photo-1583337130417-3346a1be7dee?q=80&w=1964&auto=format&fit=crop";
 
   const cargarHistorial = useCallback(async (pageOverride, silent = false) => {
@@ -67,7 +77,6 @@ const AuditoriaPage = () => {
         pagina: currentPagina,
         limite: limite,
         buscar: filtros.buscar || undefined,
-        // ✅ CORRECCIÓN: Enviar como 'modulo' para que coincida con la BD
         modulo: filtros.categoria || undefined,
         accion: filtros.accion || undefined,
         fechaDesde: fechaDesde || undefined,
@@ -78,11 +87,10 @@ const AuditoriaPage = () => {
       };
 
       const res = await api.get('/auditoria/historial', { params });
-      const dataRecibida = res.data.datos || [];
-      const totalRecibido = res.data.total || 0;
-
-      setMovimientos(dataRecibida);
-      setTotalRegistros(totalRecibido);
+      
+      // SE ELIMINÓ EL FILTRO ESPECÍFICO PARA QUE APAREZCAN TODOS LOS MOVIMIENTOS
+      setMovimientos(res.data.datos || []);
+      setTotalRegistros(res.data.total || 0);
     } catch (err) {
       console.error("❌ Error en cargarHistorial:", err.response?.data || err);
       toast.error('Error al cargar el historial');
@@ -90,6 +98,20 @@ const AuditoriaPage = () => {
       setLoading(false);
     }
   }, [pagina, limite, orden, filtros]);
+
+  const cargarPapelera = async () => {
+    setLoadingPapelera(true);
+    try {
+      const res = await api.get('/auditoria/papelera');
+      setPapeleraItems(res.data || []);
+      setPaginaPapelera(1);
+    } catch (err) {
+      console.error("Error al cargar papelera:", err);
+      toast.error('No se pudo cargar la papelera');
+    } finally {
+      setLoadingPapelera(false);
+    }
+  };
 
   useEffect(() => { 
     cargarHistorial(); 
@@ -103,6 +125,40 @@ const AuditoriaPage = () => {
   }, [cargarHistorial, pagina]);
 
   const getId = (m) => m.id || m._id || m.id_auditoria;
+
+  const handleRestaurar = async (m) => {
+    const id = getId(m);
+    try {
+      await api.patch(`/auditoria/${id}`, { eliminado: false });
+      toast.success('Registro restaurado correctamente 🔄');
+      cargarHistorial();
+      if (showPapeleraModal) cargarPapelera();
+    } catch (error) {
+      console.error(error);
+      toast.error('No se pudo restaurar el registro');
+    }
+  };
+
+  const handleBorrarPermanenteClick = (item) => {
+    setItemBorrarPermanente(item);
+    setShowBorrarPermanenteModal(true);
+  };
+
+  const confirmarBorrarPermanente = async () => {
+    if (!itemBorrarPermanente) return;
+    const id = getId(itemBorrarPermanente);
+    try {
+      await api.delete(`/auditoria/${id}`);
+      toast.success('Registro eliminado permanentemente 🗑️');
+      setShowBorrarPermanenteModal(false);
+      setItemBorrarPermanente(null);
+      cargarHistorial();
+      cargarPapelera();
+    } catch (error) {
+      console.error("❌ Error en borrado permanente:", error);
+      toast.error('No se pudo eliminar permanentemente');
+    }
+  };
 
   const handleEditar = (m) => {
     setSelectedMovement(m);
@@ -125,9 +181,9 @@ const AuditoriaPage = () => {
     try {
       await api.patch(`/auditoria/${id}`, {
         eliminado: true,
-        usuario_eliminacion: selectedMovement.responsable || 'admin'
+        usuario_eliminacion: user?.nombre || 'admin'
       });
-      toast.success('Registro eliminado 🗑️');
+      toast.success('Registro enviado a la papelera 🗑️');
       setShowDeleteModal(false);
       cargarHistorial();
     } catch (error) {
@@ -140,7 +196,7 @@ const AuditoriaPage = () => {
     try {
       await api.put(`/auditoria/${id}`, {
         ...editForm,
-        usuario_modificacion: selectedMovement.responsable || 'admin',
+        usuario_modificacion: user?.nombre || 'admin',
         accion: 'Editado'
       });
       toast.success('Registro actualizado ✅');
@@ -157,6 +213,7 @@ const AuditoriaPage = () => {
       ...prev, 
       [name]: type === 'checkbox' ? checked : value 
     }));
+    setPagina(1);
   };
 
   const aplicarFiltros = () => { 
@@ -190,9 +247,7 @@ const AuditoriaPage = () => {
       startY: 25,
       head: [['Fecha', 'Módulo', 'Acción', 'Elemento Afectado', 'Mascota', 'Responsable']],
       body: movimientos.map(m => [
-        new Date(m.fecha).toLocaleString('es-AR', { 
-          year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true
-        }), 
+        new Date(m.fecha).toLocaleString('es-AR'), 
         m.modulo || '-', 
         m.accion || '-',
         m.producto || m.servicio || '-',
@@ -209,7 +264,9 @@ const AuditoriaPage = () => {
       Creado: 'bg-success', 
       Editado: 'bg-primary', 
       Eliminado: 'bg-warning text-dark',
-      Finalizado: 'bg-info text-dark' 
+      Restaurado: 'bg-info text-dark',
+      Finalizado: 'bg-info text-dark',
+      'Borrado Permanente': 'bg-dark text-white'
     };
     return <span className={`badge rounded-pill shadow-sm ${colors[accion] || 'bg-secondary'}`}>{accion}</span>;
   };
@@ -235,60 +292,57 @@ const AuditoriaPage = () => {
     if (m.modulo === 'empleados') return m.producto || 'Empleado registrado';
     if (m.modulo === 'turnos' || m.modulo === 'estetica') return m.producto || m.servicio || 'Turno registrado';
     if (m.modulo === 'historial') return m.producto || 'Consulta registrada';
-    return m.producto || m.servicio || '-';
+    return m.producto || m.servicio || m.nombre || '-';
   };
 
   const getMascota = (m) => {
-    if (m.modulo === 'clientes' && m.mascota) return m.mascota;
-    if (m.modulo === 'mascotas' || m.modulo === 'turnos' || m.modulo === 'estetica') {
-      return m.mascota || '-';
-    }
-    return '-';
+    return m.mascota || '-';
   };
 
   const totalPaginas = Math.ceil(totalRegistros / limite);
 
-  return (
-    <div className="container-fluid min-vh-100 p-4 position-relative" style={{ 
-      background: '#0a0f1a',
-      color: 'white',
-    }}>
-      {/* CAPA DE IMAGEN */}
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundImage: `linear-gradient(rgba(10, 15, 26, 0.4), rgba(10, 15, 26, 0.8)), url(${backgroundImage})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundAttachment: 'fixed',
-        zIndex: 0
-      }} />
+  const papeleraPaginada = papeleraItems.slice(
+    (paginaPapelera - 1) * itemsPorPaginaPapelera,
+    paginaPapelera * itemsPorPaginaPapelera
+  );
+  const totalPaginasPapelera = Math.ceil(papeleraItems.length / itemsPorPaginaPapelera);
 
-      <div className="position-relative" style={{ zIndex: 1 }}>
+  return (
+    <div className="min-vh-100 p-4 p-md-5 position-relative" style={{ 
+      backgroundImage: `url(${backgroundImage})`,
+      backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed'
+    }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0, 0, 0, 0.2)', zIndex: 0 }} />
+
+      <div className="container-fluid position-relative" style={{ zIndex: 1 }}>
         <ToastContainer position="top-right" theme="dark" />
 
         {/* Encabezado */}
-        <div className="d-flex justify-content-between align-items-center mb-5">
+        <div className="d-flex justify-content-between align-items-center mb-5 flex-wrap gap-3">
           <div className="d-flex align-items-center">
             <div className="bg-info bg-opacity-25 p-3 rounded-circle me-3 border border-info border-opacity-50">
                 <FontAwesomeIcon icon={faHistory} className="text-info fs-3" />
             </div>
             <div>
-                <h1 className="fw-bold mb-0 text-shadow">Auditoría General</h1>
-                <p className="text-info mb-0 opacity-100 fw-semibold small">Monitoreo de actividad en tiempo real</p>
+                <h1 className="fw-bold mb-0 text-white" style={{ textShadow: '2px 2px 8px rgba(0,0,0,0.6)' }}>Auditoría General</h1>
+                <p className="text-info mb-0 fw-bold small">Monitoreo de actividad en tiempo real</p>
             </div>
           </div>
-          <div className="d-flex gap-2">
-            <button className="btn btn-outline-danger border-2 rounded-pill px-3 shadow bg-dark bg-opacity-25" onClick={exportarPDF}>
+
+          <div className="d-flex gap-2 flex-wrap">
+            <button className="btn btn-danger rounded-pill px-4 shadow d-flex align-items-center" onClick={exportarPDF}>
               <FontAwesomeIcon icon={faFilePdf} className="me-2" /> PDF
             </button>
-            <button className="btn btn-outline-success border-2 rounded-pill px-3 shadow bg-dark bg-opacity-25" onClick={exportarExcel}>
-              <FontAwesomeIcon icon={faFileExcel} className="me-2" /> Excel
+            <button className="btn btn-success rounded-pill px-4 shadow d-flex align-items-center" onClick={exportarExcel}>
+              <FontAwesomeIcon icon={faFileExcel} className="me-2" /> EXCEL
             </button>
-            <button className="btn btn-info rounded-pill px-4 shadow-lg fw-bold text-dark" onClick={() => cargarHistorial()} disabled={loading}>
+            <button 
+              className="btn btn-warning rounded-pill px-4 shadow d-flex align-items-center text-dark fw-bold"
+              onClick={() => { setShowPapeleraModal(true); cargarPapelera(); }}
+            >
+              <FontAwesomeIcon icon={faTrash} className="me-2" /> Papelera
+            </button>
+            <button className="btn btn-info rounded-pill px-4 shadow fw-bold text-dark" onClick={() => cargarHistorial()} disabled={loading}>
               <FontAwesomeIcon icon={faSyncAlt} className={loading ? 'fa-spin me-2' : 'me-2'} /> Actualizar
             </button>
           </div>
@@ -296,20 +350,20 @@ const AuditoriaPage = () => {
 
         {/* Filtros */}
         <div className="card border-0 shadow-lg rounded-4 mb-4" style={{ 
-          background: 'rgba(255, 255, 255, 0.08)', 
-          backdropFilter: 'blur(15px)',
-          border: '1px solid rgba(255, 255, 255, 0.15)'
+          background: 'rgba(255, 255, 255, 0.85)', 
+          backdropFilter: 'blur(10px)',
+          border: '1px solid rgba(255, 255, 255, 0.3)'
         }}>
-          <div className="card-body py-4">
+          <div className="card-body p-4">
             <div className="row g-3 align-items-center">
               <div className="col-md-4">
-                <div className="input-group shadow-sm">
-                  <span className="input-group-text bg-white bg-opacity-10 border-0 text-info">
+                <div className="input-group rounded-pill overflow-hidden border shadow-sm">
+                  <span className="input-group-text bg-white border-0 ps-4 text-muted">
                     <FontAwesomeIcon icon={faSearch} />
                   </span>
                   <input 
                     type="text" 
-                    className="form-control bg-white bg-opacity-10 border-0 text-white py-2" 
+                    className="form-control border-0 py-2" 
                     placeholder="Buscar registro..." 
                     name="buscar" 
                     value={filtros.buscar} 
@@ -320,110 +374,105 @@ const AuditoriaPage = () => {
               </div>
 
               <div className="col-md-3">
-                <select 
-                  className="form-select bg-white bg-opacity-10 border-0 text-white py-2" 
-                  name="categoria" 
-                  value={filtros.categoria} 
-                  onChange={handleFiltroChange}
-                >
-                  <option value="" className="text-dark">Todos los módulos</option>
-                  <option value="productos" className="text-dark">📦 Productos / Stock</option>
-                  <option value="estetica" className="text-dark">✂️ Estética</option>
-                  <option value="clientes" className="text-dark">👥 Clientes</option>
-                  <option value="mascotas" className="text-dark">🐾 Mascotas</option>
-                  <option value="caja" className="text-dark">💰 Caja / Dinero</option>
-                  <option value="turnos" className="text-dark">📅 Turnos / Consultas</option>
-                  <option value="historial" className="text-dark">🏥 Historial Clínico</option>
-                  <option value="empleados" className="text-dark">👔 Gestión Empleados</option>
+                <select className="form-select rounded-pill border shadow-sm" name="categoria" value={filtros.categoria} onChange={handleFiltroChange}>
+                  <option value="">Todos los módulos</option>
+                  <option value="productos">📦 Productos</option>
+                  <option value="clientes">👥 Clientes</option>
+                  <option value="mascotas">🐾 Mascotas</option>
+                  <option value="caja">💰 Caja</option>
+                  <option value="turnos">📅 Turnos</option>
+                  <option value="historial">🏥 Historial</option>
+                  <option value="empleados">👔 Empleados</option>
                 </select>
               </div>
 
               <div className="col-md-2">
-                <select className="form-select bg-white bg-opacity-10 border-0 text-white py-2" name="accion" value={filtros.accion} onChange={handleFiltroChange}>
-                  <option value="" className="text-dark">Todas las acciones</option>
-                  <option value="Creado" className="text-dark">Creado</option>
-                  <option value="Editado" className="text-dark">Editado</option>
-                  <option value="Eliminado" className="text-dark">Eliminado</option>
-                  <option value="Finalizado" className="text-dark">Finalizado</option>
+                <select className="form-select rounded-pill border shadow-sm" name="accion" value={filtros.accion} onChange={handleFiltroChange}>
+                  <option value="">Acciones</option>
+                  <option value="Creado">Creado</option>
+                  <option value="Editado">Editado</option>
+                  <option value="Eliminado">Eliminado</option>
+                  <option value="Restaurado">Restaurado</option>
                 </select>
               </div>
 
-              <div className="col-md-3 d-flex gap-3 align-items-center">
-                <div className="form-check form-switch mb-0">
-                  <input 
-                    className="form-check-input" 
-                    type="checkbox" 
-                    name="mostrarEliminados" 
-                    checked={filtros.mostrarEliminados} 
-                    onChange={handleFiltroChange} 
-                  />
-                  <label className="form-check-label text-white small fw-bold">Ver eliminados</label>
+              <div className="col-md-3 d-flex gap-2 align-items-center justify-content-end">
+                <div className="form-check form-switch mb-0 me-2">
+                  <input className="form-check-input" type="checkbox" name="mostrarEliminados" id="switchEliminados" checked={filtros.mostrarEliminados} onChange={handleFiltroChange} />
+                  <label className="form-check-label text-dark small fw-bold" htmlFor="switchEliminados">Papelera</label>
                 </div>
-                <button className="btn btn-outline-light border-0 btn-sm bg-white bg-opacity-10 px-3" onClick={limpiarFiltros}>
-                  <FontAwesomeIcon icon={faTimes} className="me-1" /> Limpiar
-                </button>
+                <button className="btn btn-outline-secondary rounded-pill btn-sm px-3" onClick={limpiarFiltros}>Limpiar</button>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Tabla principal */}
-        <div className="card border-0 shadow-lg rounded-4 overflow-hidden mb-5" style={{ 
-          background: 'rgba(15, 23, 42, 0.6)',
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255, 255, 255, 0.1)'
+        {/* Tabla Principal */}
+        <div className="rounded-4 shadow-lg overflow-hidden" style={{ 
+          background: 'rgba(255, 255, 255, 0.75)', 
+          backdropFilter: 'blur(15px)',
+          border: '1px solid rgba(255, 255, 255, 0.4)'
         }}>
           <div className="table-responsive">
-            <table className="table table-dark table-hover mb-0 align-middle">
-              <thead className="bg-white bg-opacity-10">
-                <tr className="border-bottom border-white border-opacity-10">
-                  <th className="ps-4 py-4 text-info text-uppercase fw-bold small">Módulo</th>
-                  <th className="py-4 text-info text-uppercase fw-bold small">Acción</th>
-                  <th className="py-4 text-info text-uppercase fw-bold small">Elemento Afectado</th>
-                  <th className="py-4 text-info text-uppercase fw-bold small">Mascota</th>
-                  <th className="py-4 text-info text-uppercase fw-bold small">Responsable</th>
-                  <th className="py-4 text-info text-uppercase fw-bold small">Fecha</th>
-                  <th className="py-4 text-center text-info text-uppercase fw-bold small">Estado</th>
+            <table className="table table-hover align-middle mb-0">
+              <thead className="text-secondary border-bottom border-white" style={{ background: 'rgba(255, 255, 255, 0.3)' }}>
+                <tr>
+                  <th className="ps-4 py-4 fw-bold">MÓDULO</th>
+                  <th className="fw-bold">ACCIÓN</th>
+                  <th className="fw-bold">ELEMENTO AFECTADO</th>
+                  <th className="fw-bold">MASCOTA</th>
+                  <th className="fw-bold">RESPONSABLE</th>
+                  <th className="fw-bold">FECHA</th>
+                  <th className="text-center pe-4 fw-bold">ACCIONES</th>
                 </tr>
               </thead>
-              <tbody className="bg-transparent">
+              <tbody className="border-0">
                 {loading ? (
-                  <tr><td colSpan="7" className="text-center py-5"><div className="spinner-border text-info"></div></td></tr>
+                  <tr><td colSpan="7" className="text-center py-5"><div className="spinner-border text-primary"></div></td></tr>
                 ) : movimientos.length === 0 ? (
-                  <tr><td colSpan="7" className="text-center py-5 text-muted">No se encontraron registros</td></tr>
+                  <tr><td colSpan="7" className="text-center py-5 text-muted fw-bold">No se encontraron registros</td></tr>
                 ) : (
                   movimientos.map((m, i) => (
-                    <tr key={getId(m) || i} className={`border-bottom border-white border-opacity-10 transition-all ${m.eliminado == 1 ? 'opacity-50' : ''}`}>
+                    <tr key={getId(m) || i} className={`border-bottom border-white border-opacity-50 ${m.eliminado == 1 ? 'opacity-50' : ''}`}>
                       <td className="ps-4">{renderModuloBadge(m.modulo)}</td>
                       <td>{renderAccion(m.accion, m.eliminado)}</td>
-                      <td className="fw-bold text-white">{getElementoAfectado(m)}</td>
+                      <td className="fw-bold text-dark">{getElementoAfectado(m)}</td>
+                      <td className="fw-bold">
+                        {getMascota(m) !== '-' ? (
+                          <>
+                            <FontAwesomeIcon icon={faPaw} className="me-1 text-primary opacity-50" /> 
+                            {getMascota(m)}
+                          </>
+                        ) : '-'}
+                      </td>
                       <td>
-                        <span className="text-white opacity-90">
-                          {getMascota(m) !== '-' ? <><FontAwesomeIcon icon={faPaw} className="me-1 text-warning" /> {getMascota(m)}</> : '-'}
+                        <span className="badge bg-white text-dark border shadow-sm px-3 py-2 rounded-pill">
+                            <FontAwesomeIcon icon={faUser} className="me-2 text-muted" />{m.responsable || '-'}
                         </span>
                       </td>
-                      <td>
-                        <div className="d-flex align-items-center">
-                          <div className="bg-info bg-opacity-20 text-info rounded-circle d-flex align-items-center justify-content-center me-2 border border-info border-opacity-25" style={{width: '28px', height: '28px'}}>
-                            <FontAwesomeIcon icon={faUser} style={{fontSize: '12px'}} />
-                          </div>
-                          <span className="small fw-semibold">{m.responsable || '-'}</span>
-                        </div>
+                      <td className="small text-muted fw-bold">
+                        <FontAwesomeIcon icon={faCalendarAlt} className="me-1 opacity-50" />
+                        {new Date(m.fecha).toLocaleString('es-AR', { 
+                          day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' 
+                        })}
                       </td>
-                      <td>
-                        <div className="small text-white opacity-75">
-                          <FontAwesomeIcon icon={faCalendarAlt} className="me-2" />
-                          {new Date(m.fecha).toLocaleString('es-AR', { 
-                            day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true
-                          })}
+                      <td className="text-center pe-4">
+                        <div className="d-flex justify-content-center gap-2">
+                          {m.eliminado == 1 ? (
+                            <button className="btn btn-success btn-sm rounded-pill px-3 shadow-sm fw-bold" onClick={() => handleRestaurar(m)}>
+                              <FontAwesomeIcon icon={faUndo} className="me-1" /> Restaurar
+                            </button>
+                          ) : (
+                            <>
+                              <button className="btn btn-outline-primary btn-sm rounded-circle shadow-sm" style={{width: '32px', height: '32px'}} onClick={() => handleEditar(m)}>
+                                <FontAwesomeIcon icon={faEdit} />
+                              </button>
+                              <button className="btn btn-outline-danger btn-sm rounded-circle shadow-sm" style={{width: '32px', height: '32px'}} onClick={() => handleBorrarClick(m)}>
+                                <FontAwesomeIcon icon={faTrashAlt} />
+                              </button>
+                            </>
+                          )}
                         </div>
-                      </td>
-                      <td className="text-center">
-                        {m.eliminado == 1 ? (
-                          <span className="text-danger small fw-bold">INACTIVO</span>
-                        ) : (
-                          <span className="text-success small fw-bold">ACTIVO</span>
-                        )}
                       </td>
                     </tr>
                   ))
@@ -432,57 +481,147 @@ const AuditoriaPage = () => {
             </table>
           </div>
 
-          <div className="card-footer bg-transparent d-flex justify-content-between align-items-center py-4 border-top border-white border-opacity-10">
-            <small className="text-white opacity-75 fw-semibold">
-              Mostrando <span className="text-info">{movimientos.length}</span> de <span className="text-info">{totalRegistros}</span> registros
-            </small>
-            <div className="btn-group shadow-lg">
-              <button className="btn btn-dark border-secondary px-3" disabled={pagina === 1} onClick={() => setPagina(p => Math.max(1, p - 1))}>
-                Anterior
-              </button>
-              <button className="btn btn-info px-4 text-dark fw-bold">{pagina}</button>
-              <button className="btn btn-dark border-secondary px-3" disabled={pagina >= totalPaginas} onClick={() => setPagina(p => p + 1)}>
-                Siguiente
-              </button>
+          <div className="d-flex justify-content-center py-4 gap-3 bg-white bg-opacity-20 border-top border-white">
+            <button className="btn btn-sm btn-outline-secondary rounded-pill px-4 bg-white shadow-sm fw-bold" 
+                    disabled={pagina === 1} onClick={() => setPagina(p => Math.max(1, p - 1))}>← Anterior</button>
+            <div className="px-5 py-2 bg-white bg-opacity-50 rounded-pill fw-bold text-dark border shadow-sm">
+              Página {pagina} de {totalPaginas || 1}
             </div>
+            <button className="btn btn-sm btn-outline-secondary rounded-pill px-4 bg-white shadow-sm fw-bold" 
+                    disabled={pagina >= totalPaginas} onClick={() => setPagina(p => p + 1)}>Siguiente →</button>
           </div>
         </div>
       </div>
 
-      {/* Estilos adicionales */}
+      {/* Modal Papelera */}
+      {showPapeleraModal && (
+        <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 3000 }}>
+          <div className="modal-dialog modal-xl">
+            <div className="modal-content rounded-4 shadow border-0 overflow-hidden">
+              <div className="modal-header bg-danger text-white rounded-top-4 border-0 py-3">
+                <h4 className="modal-title fw-bold mb-0">
+                  <FontAwesomeIcon icon={faTrash} className="me-2" /> PAPELERA DE AUDITORÍA
+                </h4>
+                <button type="button" className="btn-close btn-close-white" onClick={() => setShowPapeleraModal(false)}></button>
+              </div>
+
+              <div className="modal-body p-0">
+                <div className="table-responsive">
+                  <table className="table table-hover align-middle mb-0">
+                    <thead className="table-light">
+                      <tr>
+                        <th className="ps-4">Nombre / Elemento</th>
+                        <th>Módulo</th>
+                        <th>Borrado por</th>
+                        <th>Fecha</th>
+                        <th className="text-center">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loadingPapelera ? (
+                        <tr><td colSpan="5" className="text-center py-5"><div className="spinner-border text-danger"></div></td></tr>
+                      ) : papeleraItems.length === 0 ? (
+                        <tr><td colSpan="5" className="text-center py-5 text-muted fw-bold">No hay registros en la papelera</td></tr>
+                      ) : (
+                        papeleraPaginada.map((item, index) => (
+                          <tr key={getId(item) || index}>
+                            <td className="ps-4 fw-bold">{getElementoAfectado(item)}</td>
+                            <td>{renderModuloBadge(item.modulo)}</td>
+                            <td><span className="badge bg-secondary">{item.responsable_borrado || item.responsable || 'Sistema'}</span></td>
+                            <td className="small text-muted">
+                              {new Date(item.fecha_formateada || item.fecha).toLocaleString('es-AR')}
+                            </td>
+                            <td className="text-center">
+                              <div className="d-flex justify-content-center gap-2">
+                                <button className="btn btn-success rounded-circle shadow-sm p-2" onClick={() => handleRestaurar(item)}>
+                                  <FontAwesomeIcon icon={faTrashRestore} />
+                                </button>
+                                <button className="btn btn-danger rounded-circle shadow-sm p-2" onClick={() => handleBorrarPermanenteClick(item)}>
+                                  <FontAwesomeIcon icon={faTrashAlt} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="modal-footer border-0 bg-light">
+                <button className="btn btn-dark rounded-pill px-5 py-2 fw-bold" onClick={() => setShowPapeleraModal(false)}>CERRAR</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmación para borrado permanente */}
+      {showBorrarPermanenteModal && (
+        <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', zIndex: 3100 }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content border-0 shadow-lg rounded-4">
+              <div className="modal-body text-center p-5">
+                <div className="bg-danger bg-opacity-10 p-4 rounded-circle d-inline-block mb-4">
+                    <FontAwesomeIcon icon={faExclamationTriangle} className="text-danger" size="3x" />
+                </div>
+                <h4 className="fw-bold text-danger">¿Eliminar permanentemente?</h4>
+                <p className="text-muted">
+                  Esta acción <strong>NO se puede deshacer</strong>. El registro se borrará definitivamente de la base de datos.
+                </p>
+                <div className="bg-light p-3 rounded-3 mb-4 fw-bold text-dark">
+                  {itemBorrarPermanente?.producto || itemBorrarPermanente?.servicio || 'Registro seleccionado'}
+                </div>
+                <div className="d-flex gap-2 justify-content-center">
+                    <button className="btn btn-outline-secondary px-4 rounded-pill" 
+                      onClick={() => {
+                        setShowBorrarPermanenteModal(false);
+                        setItemBorrarPermanente(null);
+                      }}
+                    >
+                      Cancelar
+                    </button>
+                    <button className="btn btn-danger px-4 rounded-pill fw-bold" onClick={confirmarBorrarPermanente}>
+                      <FontAwesomeIcon icon={faTrash} className="me-2" /> Eliminar para siempre
+                    </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
-        .text-shadow { text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
-        .transition-all:hover { background: rgba(255,255,255,0.05) !important; transform: scale(1.002); }
-        .form-check-input:checked { background-color: #0dcaf0; border-color: #0dcaf0; }
-        .btn-outline-danger:hover { background-color: rgba(220, 53, 69, 0.2); }
-        .btn-outline-success:hover { background-color: rgba(25, 135, 84, 0.2); }
         .bg-purple { background-color: #6f42c1 !important; }
+        tr:hover { background-color: rgba(255,255,255,0.3) !important; transition: 0.2s; }
       `}</style>
 
       {/* Modal Editar */}
       {showEditModal && (
-        <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)' }}>
+        <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
           <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content bg-dark border-secondary shadow-2xl">
-              <div className="modal-header border-secondary">
-                <h5 className="modal-title text-info fw-bold">Editar Registro</h5>
+            <div className="modal-content border-0 shadow-lg rounded-4">
+              <div className="modal-header bg-primary text-white rounded-top-4">
+                <h5 className="modal-title fw-bold">Editar Registro</h5>
                 <button type="button" className="btn-close btn-close-white" onClick={() => setShowEditModal(false)}></button>
               </div>
               <div className="modal-body p-4">
-                <label className="text-info small mb-2">Descripción del Elemento</label>
-                <input className="form-control mb-3 bg-black border-secondary text-white py-2" placeholder="Nombre..." name="producto" value={editForm.producto} onChange={(e) => setEditForm({...editForm, producto: e.target.value})} />
-                
-                <label className="text-info small mb-2">Módulo Destino</label>
-                <select className="form-select bg-black border-secondary text-white py-2" name="categoria" value={editForm.categoria} onChange={(e) => setEditForm({...editForm, categoria: e.target.value})}>
-                  <option value="alimentos">🍎 Alimentos</option>
-                  <option value="medicamentos">💊 Medicamentos</option>
-                  <option value="petshop">🐾 Petshop</option>
-                  <option value="estetica">✂️ Estética</option>
+                <label className="fw-bold mb-2">Descripción del Elemento</label>
+                <input className="form-control mb-3 rounded-3" placeholder="Nombre..." value={editForm.producto} onChange={(e) => setEditForm({...editForm, producto: e.target.value})} />
+                <label className="fw-bold mb-2">Módulo</label>
+                <select className="form-select rounded-3" value={editForm.categoria} onChange={(e) => setEditForm({...editForm, categoria: e.target.value})}>
+                  <option value="productos">📦 Productos</option>
+                  <option value="clientes">👥 Clientes</option>
+                  <option value="mascotas">🐾 Mascotas</option>
+                  <option value="caja">💰 Caja</option>
+                  <option value="turnos">📅 Turnos</option>
+                  <option value="historial">🏥 Historial</option>
                 </select>
               </div>
-              <div className="modal-footer border-secondary">
-                <button className="btn btn-link text-white text-decoration-none" onClick={() => setShowEditModal(false)}>Cerrar</button>
-                <button className="btn btn-info px-4 fw-bold" onClick={guardarEdicion}>Actualizar</button>
+              <div className="modal-footer border-0">
+                <button className="btn btn-light rounded-pill px-4" onClick={() => setShowEditModal(false)}>Cerrar</button>
+                <button className="btn btn-primary rounded-pill px-4 fw-bold" onClick={guardarEdicion}>Actualizar</button>
               </div>
             </div>
           </div>
@@ -491,21 +630,19 @@ const AuditoriaPage = () => {
 
       {/* Modal Eliminar */}
       {showDeleteModal && (
-        <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)' }}>
+        <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
           <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content bg-dark border-0 shadow-2xl">
+            <div className="modal-content border-0 shadow-lg rounded-4">
               <div className="modal-body text-center p-5">
                 <div className="bg-warning bg-opacity-10 p-4 rounded-circle d-inline-block mb-4">
                     <FontAwesomeIcon icon={faExclamationTriangle} className="text-warning" size="3x" />
                 </div>
-                <h4 className="text-white fw-bold">¿Confirmar eliminación?</h4>
-                <p className="text-muted">Esta acción marcará el registro como eliminado en el historial.</p>
-                <div className="bg-black bg-opacity-50 p-3 rounded-3 mb-4">
-                    <span className="text-info fw-bold">{selectedMovement?.producto || selectedMovement?.servicio}</span>
-                </div>
+                <h4 className="fw-bold">¿Mover a la papelera?</h4>
+                <p className="text-muted">Podrás restaurar este registro más tarde desde la papelera de auditoría.</p>
+                <div className="bg-light p-3 rounded-3 mb-4 fw-bold">{selectedMovement?.producto || selectedMovement?.servicio || 'Registro seleccionado'}</div>
                 <div className="d-flex gap-2 justify-content-center">
-                    <button className="btn btn-outline-light px-4 rounded-pill" onClick={() => setShowDeleteModal(false)}>Cancelar</button>
-                    <button className="btn btn-warning text-dark px-4 rounded-pill fw-bold" onClick={confirmarBorrar}>Eliminar Registro</button>
+                    <button className="btn btn-outline-secondary px-4 rounded-pill" onClick={() => setShowDeleteModal(false)}>Cancelar</button>
+                    <button className="btn btn-warning text-dark px-4 rounded-pill fw-bold" onClick={confirmarBorrar}>Eliminar</button>
                 </div>
               </div>
             </div>

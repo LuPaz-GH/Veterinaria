@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
+const authMiddleware = require('../middleware/auth');
 
-// 1. Obtener historial con filtros y paginación (VERSIÓN CORREGIDA)
+// 1. Obtener historial con filtros y paginación
 router.get('/historial', async (req, res) => {
     try {
         const { 
@@ -23,7 +24,6 @@ router.get('/historial', async (req, res) => {
         const limitNum = parseInt(limite) || 25;
         const offset = (pageNum - 1) * limitNum;
 
-        // ✅ CORRECCIÓN: Usar 'modulo' si existe, sino 'categoria' (del frontend)
         const moduloFiltro = modulo || categoria;
 
         let query = `SELECT * FROM auditoria WHERE 1=1`;
@@ -31,13 +31,6 @@ router.get('/historial', async (req, res) => {
         const params = [];
         const countParams = [];
 
-        // Filtro eliminados
-        if (mostrarEliminados !== 'true' && mostrarEliminados !== true) {
-            query += ` AND eliminado = 0`;
-            countQuery += ` AND eliminado = 0`;
-        }
-
-        // ✅ CORRECCIÓN: Filtro por módulo (clientes, mascotas, caja, turnos, etc.)
         if (moduloFiltro && moduloFiltro !== 'todos' && moduloFiltro !== '') {
             query += ` AND modulo = ?`;
             countQuery += ` AND modulo = ?`;
@@ -46,7 +39,6 @@ router.get('/historial', async (req, res) => {
             console.log('🔍 [Auditoría] Filtrando por módulo:', moduloFiltro);
         }
 
-        // Búsqueda
         if (buscar && buscar.trim() !== '') {
             const searchVal = `%${buscar.trim()}%`;
             const searchSql = ` AND (producto LIKE ? OR responsable LIKE ? OR mascota LIKE ? OR servicio LIKE ?)`;
@@ -56,7 +48,6 @@ router.get('/historial', async (req, res) => {
             countParams.push(searchVal, searchVal, searchVal, searchVal);
         }
 
-        // Acción
         if (accion && accion !== '') {
             query += ` AND accion = ?`;
             countQuery += ` AND accion = ?`;
@@ -64,7 +55,6 @@ router.get('/historial', async (req, res) => {
             countParams.push(accion);
         }
 
-        // Fechas
         if (fechaDesde && fechaHasta) {
             query += ` AND fecha BETWEEN ? AND ?`;
             countQuery += ` AND fecha BETWEEN ? AND ?`;
@@ -72,7 +62,6 @@ router.get('/historial', async (req, res) => {
             countParams.push(`${fechaDesde} 00:00:00`, `${fechaHasta} 23:59:59`);
         }
 
-        // Orden
         const validColumns = ['fecha', 'producto', 'accion', 'responsable', 'modulo'];
         const sortCol = validColumns.includes(orden) ? orden : 'fecha';
         const sortDir = direccion.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
@@ -80,7 +69,6 @@ router.get('/historial', async (req, res) => {
         query += ` ORDER BY ${sortCol} ${sortDir} LIMIT ? OFFSET ?`;
         params.push(limitNum, offset);
 
-        // EJECUCIÓN
         const [rows] = await pool.query(query, params);
         const [totalRows] = await pool.query(countQuery, countParams);
 
@@ -94,7 +82,6 @@ router.get('/historial', async (req, res) => {
     } catch (error) {
         console.error('❌ ERROR CRÍTICO en GET /auditoria/historial:', error.message);
 
-        // Si es error de tabla no existe, devolvemos array vacío
         if (error.message.includes("doesn't exist")) {
             console.warn('⚠️ Tabla auditoria no encontrada. Devolviendo datos vacíos.');
             return res.json({
@@ -111,7 +98,37 @@ router.get('/historial', async (req, res) => {
     }
 });
 
-// Rutas POST, PATCH y PUT (sin cambios)
+// ==================== PAPELERA GENERAL DE AUDITORÍA ====================
+router.get('/papelera', async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT 
+                a.*,
+                DATE_FORMAT(a.fecha, '%d/%m/%Y %H:%i') as fecha_formateada,
+                DATE_FORMAT(a.fecha, '%d/%m/%Y %H:%i') as fecha_eliminacion_formateada,
+                COALESCE(a.responsable, 'Sistema') as responsable_borrado
+            FROM auditoria a
+            WHERE a.eliminado = 1
+            ORDER BY a.fecha DESC
+            LIMIT 200
+        `);
+
+        console.log(`✅ [Papelera] Se encontraron ${rows.length} registros eliminados`);
+
+        res.json(rows);
+    } catch (error) {
+        console.error('❌ Error al obtener papelera general:', error.message);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error al cargar la papelera',
+            error: error.message 
+        });
+    }
+});
+
+// ==================== RUTAS PROTEGIDAS CON AUTH ====================
+
+// Rutas POST, PATCH y PUT (mantengo sin auth por ahora, ya que antes funcionaban)
 router.post('/', async (req, res) => {
     try {
         const { producto, mascota, categoria, servicio, accion, responsable, modulo, fecha, id_referencia } = req.body;
@@ -200,6 +217,119 @@ router.put('/:id', async (req, res) => {
     } catch (error) {
         console.error('Error en PUT /auditoria:', error);
         res.status(500).json({ success: false, message: 'Error al editar el registro' });
+    }
+});
+
+// ==================== BORRADO PERMANENTE (CORREGIDO) ====================
+router.delete('/:id', authMiddleware, async (req, res) => {
+    try {
+        if (!req.user || req.user.rol !== 'admin') {
+            console.warn(`⚠️ Intento de borrado permanente sin permisos por usuario: ${req.user?.nombre || 'desconocido'}`);
+            return res.status(403).json({ 
+                success: false, 
+                message: 'No tienes permisos para realizar esta acción' 
+            });
+        }
+
+        const { id } = req.params;
+        console.log(`🗑️ [Borrado Permanente] Usuario ${req.user.nombre} solicita eliminar ID: ${id}`);
+
+        const [rows] = await pool.query(
+            'SELECT id, producto, modulo, accion, responsable FROM auditoria WHERE id = ? AND eliminado = 1', 
+            [id]
+        );
+
+        if (rows.length === 0) {
+            console.warn(`⚠️ Registro ID ${id} no encontrado o no está en papelera`);
+            return res.status(404).json({ 
+                success: false, 
+                message: 'Registro no encontrado o no está en la papelera' 
+            });
+        }
+
+        const registro = rows[0];
+        console.log(`📋 [Borrado Permanente] Registro a eliminar:`, {
+            id: registro.id,
+            producto: registro.producto,
+            modulo: registro.modulo,
+            accion: registro.accion
+        });
+
+        console.log(`🔒 [LOG SEGURO] Usuario "${req.user.nombre}" eliminó PERMANENTEMENTE el registro de auditoría ID=${id} | Módulo: ${registro.modulo} | Acción original: ${registro.accion} | Elemento: ${registro.producto}`);
+
+        const [result] = await pool.query('DELETE FROM auditoria WHERE id = ?', [id]);
+
+        if (result.affectedRows > 0) {
+            console.log(`✅ [Borrado Permanente] Registro ID ${id} eliminado exitosamente de la BD`);
+            res.json({ 
+                success: true, 
+                message: 'Registro eliminado permanentemente',
+                detalles: {
+                    id_eliminado: id,
+                    elemento: registro.producto,
+                    modulo: registro.modulo,
+                    fecha_borrado: new Date().toISOString()
+                }
+            });
+        } else {
+            console.error(`❌ [Borrado Permanente] No se pudo eliminar el registro ID ${id}`);
+            res.status(500).json({ 
+                success: false, 
+                message: 'No se pudo completar la eliminación' 
+            });
+        }
+    } catch (error) {
+        console.error('❌ ERROR CRÍTICO en DELETE /auditoria/:id:', error.message);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error interno al eliminar permanentemente',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+});
+
+// ==================== VACIAR PAPELERA COMPLETA ====================
+router.delete('/papelera/vaciar', authMiddleware, async (req, res) => {
+    try {
+        if (!req.user || req.user.rol !== 'admin') {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'No tienes permisos para vaciar la papelera' 
+            });
+        }
+
+        console.log(`🗑️ [Vaciar Papelera] Usuario ${req.user.nombre} solicita vaciar TODA la papelera de auditoría`);
+
+        const [countRows] = await pool.query('SELECT COUNT(*) as total FROM auditoria WHERE eliminado = 1');
+        const totalAEliminar = countRows[0]?.total || 0;
+
+        if (totalAEliminar === 0) {
+            return res.json({ 
+                success: true, 
+                message: 'La papelera ya está vacía',
+                registros_eliminados: 0 
+            });
+        }
+
+        console.log(`🔒 [LOG SEGURO] Usuario "${req.user.nombre}" vació la papelera de auditoría | Registros eliminados: ${totalAEliminar}`);
+
+        const [result] = await pool.query('DELETE FROM auditoria WHERE eliminado = 1');
+
+        console.log(`✅ [Vaciar Papelera] ${result.affectedRows} registros eliminados permanentemente`);
+
+        res.json({ 
+            success: true, 
+            message: 'Papelera de auditoría vaciada exitosamente',
+            registros_eliminados: result.affectedRows,
+            fecha: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('❌ ERROR CRÍTICO en DELETE /auditoria/papelera/vaciar:', error.message);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error al vaciar la papelera',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 });
 

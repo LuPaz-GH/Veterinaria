@@ -1,4 +1,5 @@
 const productoService = require('../services/productoService');
+const pool = require('../config/db'); // ← AGREGADO
 
 const productoController = {
     // 1. Obtener productos por categoría
@@ -25,7 +26,7 @@ const productoController = {
         }
     },
 
-    // 2. CREAR: Aquí se asegura de capturar el nombre del usuario responsable
+    // 2. CREAR: Ahora también registra en auditoría (por si el service no lo hace)
     crearProducto: async (req, res) => {
         try {
             const usuarioId = req.user ? req.user.id : null;
@@ -35,6 +36,16 @@ const productoController = {
             }
             
             const id = await productoService.create(req.body, usuarioId);
+            
+            // === AUDITORÍA – NUEVO PRODUCTO ===
+            const [empleado] = await pool.query('SELECT nombre FROM empleados WHERE id = ?', [usuarioId]);
+            const responsableNombre = empleado[0]?.nombre || 'Sistema';
+            await pool.query(
+                `INSERT INTO auditoria (fecha, producto, accion, responsable, modulo, id_referencia, eliminado) 
+                 VALUES (NOW(), ?, 'Creado', ?, 'productos', ?, 0)`,
+                [`Producto: ${req.body.nombre || 'Nuevo producto'}`, responsableNombre, id]
+            );
+            
             res.status(201).json({ success: true, id, message: 'Producto creado y registrado en auditoría' });
         } catch (err) {
             console.error("❌ Error en crearProducto:", err);
@@ -42,7 +53,7 @@ const productoController = {
         }
     },
 
-    // 3. EDITAR: Registra quién hizo la modificación
+    // 3. EDITAR
     actualizarProducto: async (req, res) => {
         try {
             const { id } = req.params;
@@ -53,6 +64,16 @@ const productoController = {
             }
             
             await productoService.update(id, req.body, usuarioId);
+            
+            // === AUDITORÍA – EDICIÓN PRODUCTO ===
+            const [empleado] = await pool.query('SELECT nombre FROM empleados WHERE id = ?', [usuarioId]);
+            const responsableNombre = empleado[0]?.nombre || 'Sistema';
+            await pool.query(
+                `INSERT INTO auditoria (fecha, producto, accion, responsable, modulo, id_referencia, eliminado) 
+                 VALUES (NOW(), ?, 'Editado', ?, 'productos', ?, 0)`,
+                [`Producto ID: ${id}`, responsableNombre, id]
+            );
+            
             res.json({ success: true, message: 'Edición registrada correctamente' });
         } catch (err) {
             console.error("❌ Error en actualizarProducto:", err);
@@ -60,7 +81,7 @@ const productoController = {
         }
     },
 
-    // 4. ELIMINAR: Registra el borrado lógico en la auditoría
+    // 4. ELIMINAR (Mover a papelera)
     eliminarProducto: async (req, res) => {
         try {
             const { id } = req.params;
@@ -71,6 +92,16 @@ const productoController = {
             }
             
             await productoService.delete(id, usuarioId);
+            
+            // === AUDITORÍA – ELIMINACIÓN PRODUCTO ===
+            const [empleado] = await pool.query('SELECT nombre FROM empleados WHERE id = ?', [usuarioId]);
+            const responsableNombre = empleado[0]?.nombre || 'Sistema';
+            await pool.query(
+                `INSERT INTO auditoria (fecha, producto, accion, responsable, modulo, id_referencia, eliminado) 
+                 VALUES (NOW(), ?, 'Eliminado', ?, 'productos', ?, 1)`,
+                [`Producto ID: ${id}`, responsableNombre, id]
+            );
+            
             res.json({ success: true, message: 'Producto eliminado y auditado' });
         } catch (err) {
             console.error("❌ Error en eliminarProducto:", err);
@@ -94,11 +125,56 @@ const productoController = {
     restaurarProducto: async (req, res) => {
         try {
             const { id } = req.params;
+            const usuarioId = req.user ? req.user.id : null;
+
             await productoService.restaurar(id);
+
+            // === AUDITORÍA – RESTAURACIÓN PRODUCTO ===
+            if (usuarioId) {
+                const [empleado] = await pool.query('SELECT nombre FROM empleados WHERE id = ?', [usuarioId]);
+                const responsableNombre = empleado[0]?.nombre || 'Sistema';
+                await pool.query(
+                    `INSERT INTO auditoria (fecha, producto, accion, responsable, modulo, id_referencia, eliminado) 
+                     VALUES (NOW(), ?, 'Restaurado', ?, 'productos', ?, 0)`,
+                    [`Producto ID: ${id}`, responsableNombre, id]
+                );
+            }
+
             res.json({ success: true, message: 'Producto restaurado correctamente' });
         } catch (err) {
             console.error("❌ Error en restaurarProducto:", err);
             res.status(500).json({ error: 'Error al restaurar producto', detalle: err.message });
+        }
+    },
+
+    // NUEVO: Borrado permanente de la DB
+    eliminarProductoPermanente: async (req, res) => {
+        try {
+            if (!req.user || req.user.rol !== 'admin') {
+                return res.status(403).json({ error: 'No tienes permisos de administrador' });
+            }
+            const { id } = req.params;
+            const usuarioId = req.user.id;
+
+            // Obtener info para auditoría antes de borrar
+            const [producto] = await pool.query('SELECT nombre FROM productos WHERE id = ?', [id]);
+            const nombreProd = producto[0]?.nombre || id;
+
+            await productoService.eliminarPermanente(id);
+
+            // === AUDITORÍA – BORRADO DEFINITIVO ===
+            const [empleado] = await pool.query('SELECT nombre FROM empleados WHERE id = ?', [usuarioId]);
+            const responsableNombre = empleado[0]?.nombre || 'Sistema';
+            await pool.query(
+                `INSERT INTO auditoria (fecha, producto, accion, responsable, modulo, id_referencia, eliminado) 
+                 VALUES (NOW(), ?, 'Borrado Permanente', ?, 'productos', ?, 1)`,
+                [`Producto: ${nombreProd}`, responsableNombre, id]
+            );
+
+            res.json({ success: true, message: 'Producto borrado definitivamente' });
+        } catch (err) {
+            console.error("❌ Error en eliminarProductoPermanente:", err);
+            res.status(500).json({ error: 'Error al eliminar permanentemente' });
         }
     },
 

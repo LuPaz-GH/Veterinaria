@@ -61,7 +61,7 @@ router.post('/', async (req, res) => {
       [nombre, usuario, hashedPassword, rol]
     );
 
-    // REGISTRO EN AUDITORÍA (Opcional pero recomendado para seguir tu lógica de Clientes/Productos)
+    // REGISTRO EN AUDITORÍA
     await pool.query(
       `INSERT INTO auditoria (fecha, producto, accion, responsable, modulo, id_referencia, eliminado) 
        VALUES (NOW(), ?, 'Creado', 'Sistema', 'empleados', ?, 0)`,
@@ -82,66 +82,106 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT - Actualizar empleado (ahora también hashea si viene nueva contraseña)
+// PUT - Actualizar empleado (CON AUDITORÍA INTEGRADA ✅)
 router.put('/:id', async (req, res) => {
   const { id } = req.params;
-  const { nombre, usuario, password, rol, activo } = req.body; // Agregué activo por si mandas el cambio de estado aquí
+  const { nombre, usuario, password, rol, activo } = req.body;
 
   try {
-    const [existing] = await pool.query('SELECT id FROM empleados WHERE id = ?', [id]);
+    // 1. Verificar que el empleado existe y obtener su nombre original
+    const [existing] = await pool.query('SELECT id, nombre FROM empleados WHERE id = ?', [id]);
     if (existing.length === 0) {
       return res.status(404).json({ error: 'Empleado no encontrado' });
     }
 
+    const nombreOriginal = existing[0].nombre;
+
+    // 2. Preparar la consulta de actualización
     let query = 'UPDATE empleados SET ';
     const params = [];
     const updates = [];
+    const cambios = []; // Para registrar qué campos se modificaron
 
     if (nombre) { 
       updates.push('nombre = ?'); 
-      params.push(nombre); 
+      params.push(nombre);
+      cambios.push(`Nombre: ${nombreOriginal} → ${nombre}`);
     }
 
     if (usuario) {
+      // Verificar que el nuevo usuario no esté en uso por otro empleado
       const [duplicado] = await pool.query(
         'SELECT id FROM empleados WHERE usuario = ? AND id != ?',
         [usuario, id]
       );
       if (duplicado.length > 0) {
-        return res.status(400).json({ error: 'Usuario ya en uso' });
+        return res.status(400).json({ error: 'El nombre de usuario ya está en uso' });
       }
       updates.push('usuario = ?'); 
       params.push(usuario);
+      cambios.push('Usuario actualizado');
     }
 
-    // Si viene contraseña nueva → hashearla
-    if (password) { 
+    // Si viene contraseña nueva → hashearla antes de guardar
+    if (password && password.trim() !== '') { 
       const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
       updates.push('password = ?'); 
       params.push(hashedPassword);
+      cambios.push('Contraseña actualizada');
     }
 
     if (rol) { 
       updates.push('rol = ?'); 
-      params.push(rol); 
+      params.push(rol);
+      cambios.push(`Rol: ${rol}`);
     }
 
-    // Por si necesitas cambiar el estado mediante PUT
+    // Permitir cambiar el estado (activo/inactivo) mediante esta ruta
     if (activo !== undefined) {
       updates.push('activo = ?');
       params.push(activo);
+      cambios.push(`Estado: ${activo ? 'Activo' : 'Inactivo'}`);
     }
 
-    if (updates.length === 0) return res.status(400).json({ error: 'Sin cambios' });
+    // Si no hay nada para actualizar, retornar error
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No se enviaron cambios para actualizar' });
+    }
 
     query += updates.join(', ') + ' WHERE id = ?';
     params.push(id);
 
+    // 3. Ejecutar la actualización en la base de datos
     await pool.query(query, params);
-    res.json({ message: 'Actualizado con éxito' });
+
+    // 4. ✅ REGISTRAR EN AUDITORÍA
+    // Intentamos obtener el usuario responsable desde el token (si existe)
+    let responsable = 'Sistema';
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const jwt = require('jsonwebtoken');
+        const token = authHeader.replace('Bearer ', '');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secreto_default');
+        responsable = decoded.nombre || decoded.usuario || responsable;
+      } catch (e) {
+        // Si no se puede decodificar el token, queda 'Sistema'
+        console.log('No se pudo decodificar el token para auditoría:', e.message);
+      }
+    }
+
+    await pool.query(
+      `INSERT INTO auditoria 
+       (fecha, producto, accion, responsable, modulo, id_referencia, eliminado) 
+       VALUES (NOW(), ?, 'Editado', ?, 'empleados', ?, 0)`,
+      [`Empleado: ${nombre || nombreOriginal} | Cambios: ${cambios.join('; ')}`, responsable, id]
+    );
+
+    res.json({ message: 'Empleado actualizado con éxito' });
+
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Error al actualizar' });
+    console.error('❌ Error al actualizar empleado:', err);
+    res.status(500).json({ error: 'Error interno al actualizar empleado' });
   }
 });
 

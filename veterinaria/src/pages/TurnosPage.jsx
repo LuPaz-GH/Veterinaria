@@ -18,6 +18,7 @@ import autoTable from 'jspdf-autotable';
 const TurnosPage = ({ user }) => {
     const [turnos, setTurnos] = useState([]);
     const [turnosEliminados, setTurnosEliminados] = useState([]);
+    const [busquedaPapelera, setBusquedaPapelera] = useState(''); // ← NUEVO: Buscador papelera
     const [mascotas, setMascotas] = useState([]);
     const [busqueda, setBusqueda] = useState('');
     
@@ -38,6 +39,10 @@ const TurnosPage = ({ user }) => {
     const [idToDelete, setIdToDelete] = useState(null);
     const [showConfirm, setShowConfirm] = useState(false);
     const [loading, setLoading] = useState(false);
+
+    // ESTADOS PARA BORRADO PERMANENTE
+    const [showConfirmPermanent, setShowConfirmPermanent] = useState(false);
+    const [idToPermanentDelete, setIdToPermanentDelete] = useState(null);
 
     const [notificacion, setNotificacion] = useState({ show: false, mensaje: '', tipo: 'success' });
 
@@ -118,6 +123,19 @@ const TurnosPage = ({ user }) => {
         }
     };
 
+    const handleConfirmarEliminarPermanente = async () => {
+        if (!idToPermanentDelete) return;
+        try {
+            await api.delete(`/turnos/papelera/${idToPermanentDelete}`);
+            mostrarAviso("🗑️ Registro eliminado definitivamente");
+            setShowConfirmPermanent(false);
+            setIdToPermanentDelete(null);
+            cargarPapelera();
+        } catch (err) {
+            mostrarAviso("❌ Error al eliminar el registro", "error");
+        }
+    };
+
     useEffect(() => { 
         cargarDatos(); 
     }, [pagina, filtroFecha, fechaPersonalizada]);
@@ -138,6 +156,14 @@ const TurnosPage = ({ user }) => {
                                      (t.dueno_nombre || '').toLowerCase().includes(busqueda.toLowerCase());
             return coincideBusqueda;
         }).sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+    };
+
+    // FILTRO PARA EL BUSCADOR DE LA PAPELERA
+    const obtenerPapeleraFiltrada = () => {
+        return turnosEliminados.filter(t => 
+            (t.mascota_nombre || '').toLowerCase().includes(busquedaPapelera.toLowerCase()) ||
+            (t.dueno_nombre || '').toLowerCase().includes(busquedaPapelera.toLowerCase())
+        );
     };
 
     const turnosAgrupados = (lista) => {
@@ -279,7 +305,6 @@ const TurnosPage = ({ user }) => {
                         <FontAwesomeIcon icon={faCalendarCheck} className="me-3" /> Agenda Veterinaria
                     </h1>
                     <div className="d-flex gap-2 align-items-center">
-                        {/* BOTONES EXPORTAR */}
                         <button className="btn btn-danger rounded-pill px-3 fw-bold shadow-sm" onClick={exportarPDFGeneral}>
                             <FontAwesomeIcon icon={faFilePdf} className="me-1" /> PDF
                         </button>
@@ -287,7 +312,6 @@ const TurnosPage = ({ user }) => {
                             <FontAwesomeIcon icon={faFileExcel} className="me-1" /> EXCEL
                         </button>
                         
-                        {/* BOTÓN PAPELERA REDISEÑADO */}
                         <button 
                             className="btn rounded-pill px-4 fw-bold shadow-lg text-white" 
                             onClick={() => setShowPapelera(true)}
@@ -376,35 +400,66 @@ const TurnosPage = ({ user }) => {
                 )}
             </div>
 
-            {/* MODAL PAPELERA (DISEÑO IMAGEN) */}
+            {/* MODAL PAPELERA (DISEÑO ACTUALIZADO CON BUSCADOR Y BOTÓN ELIMINAR) */}
             {showPapelera && (
                 <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 3000 }}>
-                    <div className="modal-dialog modal-lg modal-dialog-centered">
+                    <div className="modal-dialog modal-xl modal-dialog-centered">
                         <div className="modal-content border-0" style={{ borderRadius: '40px', overflow: 'hidden' }}>
-                            <div className="text-center p-4 text-white" style={{ backgroundColor: '#D82F43' }}>
+                            <div className="text-center p-4 text-white position-relative" style={{ backgroundColor: '#D82F43' }}>
                                 <h3 className="fw-bold m-0 text-uppercase"><FontAwesomeIcon icon={faHistory} className="me-2" /> Papelera de Reciclaje</h3>
                             </div>
                             <div className="modal-body p-4 bg-white">
-                                <div className="table-responsive">
+                                {/* BUSCADOR DENTRO DE LA PAPELERA */}
+                                <div className="mb-4 d-flex justify-content-center">
+                                    <div className="input-group shadow-sm rounded-pill overflow-hidden bg-light border w-50">
+                                        <span className="input-group-text bg-transparent border-0 ps-3"><FontAwesomeIcon icon={faSearch} className="text-muted" /></span>
+                                        <input 
+                                            type="text" 
+                                            className="form-control border-0 py-2 bg-light" 
+                                            placeholder="Buscar en papelera..." 
+                                            value={busquedaPapelera} 
+                                            onChange={(e) => setBusquedaPapelera(e.target.value)} 
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="table-responsive" style={{ maxHeight: '400px', overflowY: 'auto' }}>
                                     <table className="table table-hover align-middle">
-                                        <thead className="bg-light">
+                                        <thead className="bg-light sticky-top">
                                             <tr>
-                                                <th>Nombre</th><th>Tipo</th><th className="text-center">Borrado por</th><th>Fecha</th><th className="text-center">Restaurar</th>
+                                                <th className="ps-3">Nombre</th>
+                                                <th>Tipo</th>
+                                                <th className="text-center">Borrado por</th>
+                                                <th>Fecha</th>
+                                                <th className="text-center">Restaurar</th>
+                                                <th className="text-center">Eliminar</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {turnosEliminados.length === 0 ? (
-                                                <tr><td colSpan="5" className="text-center py-5 text-muted">La papelera está vacía</td></tr>
+                                            {obtenerPapeleraFiltrada().length === 0 ? (
+                                                <tr><td colSpan="6" className="text-center py-5 text-muted">No se encontraron registros eliminados</td></tr>
                                             ) : (
-                                                turnosEliminados.map(t => (
+                                                obtenerPapeleraFiltrada().map(t => (
                                                     <tr key={t.id}>
-                                                        <td><div className="fw-bold">{t.mascota_nombre}</div><small className="text-muted">Dueño: {t.dueno_nombre}</small></td>
+                                                        <td className="ps-3">
+                                                            <div className="fw-bold">{t.mascota_nombre}</div>
+                                                            <small className="text-muted">Dueño: {t.dueno_nombre}</small>
+                                                        </td>
                                                         <td><span className="badge rounded-pill bg-primary px-3 py-2 text-uppercase">Turno</span></td>
-                                                        <td className="text-center"><span className="badge bg-light text-dark border px-3 py-2" style={{ borderRadius: '8px' }}>{t.responsable_borrado || 'Sistema'}</span></td>
+                                                        <td className="text-center">
+                                                            <span className="badge bg-light text-dark border px-3 py-2" style={{ borderRadius: '8px' }}>
+                                                                {t.responsable_borrado || 'Luciana'}
+                                                            </span>
+                                                        </td>
                                                         <td className="small">{new Date(t.fecha_borrado).toLocaleString('es-AR')}</td>
                                                         <td className="text-center">
                                                             <button className="btn btn-success rounded-circle shadow-sm" style={{ width: '40px', height: '40px' }} onClick={() => restaurarTurno(t.id)}>
                                                                 <FontAwesomeIcon icon={faTrashRestore} />
+                                                            </button>
+                                                        </td>
+                                                        <td className="text-center">
+                                                            <button className="btn btn-danger rounded-circle shadow-sm" style={{ width: '40px', height: '40px' }} onClick={() => { setIdToPermanentDelete(t.id); setShowConfirmPermanent(true); }}>
+                                                                <FontAwesomeIcon icon={faTrash} />
                                                             </button>
                                                         </td>
                                                     </tr>
@@ -415,7 +470,7 @@ const TurnosPage = ({ user }) => {
                                 </div>
                             </div>
                             <div className="modal-footer justify-content-center border-0 pb-4 bg-white">
-                                <button className="btn text-white px-5 py-2 fw-bold shadow" style={{ backgroundColor: '#2C3E50', borderRadius: '25px' }} onClick={() => setShowPapelera(false)}>CERRAR</button>
+                                <button className="btn text-white px-5 py-2 fw-bold shadow" style={{ backgroundColor: '#2C3E50', borderRadius: '25px' }} onClick={() => { setShowPapelera(false); setBusquedaPapelera(''); }}>CERRAR</button>
                             </div>
                         </div>
                     </div>
@@ -513,10 +568,23 @@ const TurnosPage = ({ user }) => {
                 </div>
             )}
 
+            {/* MODAL MOVER A PAPELERA */}
             <ConfirmModal 
                 show={showConfirm} onClose={() => setShowConfirm(false)} onConfirm={handleConfirmarEliminar} 
                 title="¿Mover a la papelera?" message="El turno se moverá a la papelera y se podrá restaurar más tarde." 
                 confirmText="Sí, mover a papelera" cancelText="Cancelar" confirmColor="danger" 
+            />
+
+            {/* MODAL ELIMINAR PERMANENTE */}
+            <ConfirmModal 
+                show={showConfirmPermanent} 
+                onClose={() => setShowConfirmPermanent(false)} 
+                onConfirm={handleConfirmarEliminarPermanente} 
+                title="¿Eliminar permanentemente?" 
+                message="Esta acción no se puede deshacer. El registro se borrará por completo de la base de datos." 
+                confirmText="Sí, eliminar para siempre" 
+                cancelText="Cancelar" 
+                confirmColor="danger" 
             />
         </div>
     );

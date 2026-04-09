@@ -21,12 +21,14 @@ const LoginPage = () => {
   const [recuperacionEnviada, setRecuperacionEnviada] = useState(false);
   const [enviandoRecuperacion, setEnviandoRecuperacion] = useState(false);
 
+  // ======================== ROLES - PELUQUERO OCULTO TEMPORALMENTE ========================
   const roles = [
     { id: 'admin', nombre: 'Dueña/o', icono: faUserShield, color: '#663399' },
     { id: 'veterinario', nombre: 'Veterinario', icono: faUserMd, color: '#007bff' },
     { id: 'recepcionista', nombre: 'Recepcionista', icono: faUserEdit, color: '#28a745' },
-    { id: 'peluquero', nombre: 'Peluquero', icono: faCut, color: '#ff69b4' }
+    // { id: 'peluquero', nombre: 'Peluquero', icono: faCut, color: '#ff69b4' }   // OCULTO TEMPORALMENTE
   ];
+  // ====================================================================================
 
   const manejarLogin = async (e) => {
     e.preventDefault();
@@ -40,7 +42,6 @@ const LoginPage = () => {
         return;
       }
 
-      // ✅ USAR api.post() en lugar de fetch para consistencia
       const response = await api.post('/login', {
         usuario: credenciales.usuario,
         password: credenciales.clave 
@@ -60,20 +61,14 @@ const LoginPage = () => {
         return;
       }
 
-      // ✅ Guardar token y usuario LIMPIOS
       const tokenLimpio = data.token?.trim();
       localStorage.setItem('token', tokenLimpio);
       localStorage.setItem('user', JSON.stringify(data.user));
       
-      // 🔍 Verificación de debug
       console.log('✅ [Login] Token guardado:', tokenLimpio ? 'Sí' : 'No');
       console.log('✅ [Login] User guardado:', data.user);
 
-      // Navegar según rol
       navigate('/home');
-      
-      // ✅ Eliminar window.location.reload() para evitar race conditions
-      // El useEffect de Sidebar/AppContent se encargará de actualizar el estado
 
     } catch (err) {
       console.error('❌ [Login] Error:', err);
@@ -162,17 +157,38 @@ const LoginPage = () => {
               <FontAwesomeIcon icon={faPaw} size="3x" style={{ color: '#663399' }} />
             </div>
             <h2 className="fw-bold mb-4">¿Quién ingresa?</h2>
-            <div className="row g-3">
-              {roles.map((r) => (
-                <div className="col-6" key={r.id}>
+            
+            {/* Layout mejorado para 3 botones - centrado y equilibrado */}
+            <div className="d-flex flex-column align-items-center gap-3">
+              <div className="row w-100 g-3 justify-content-center">
+                <div className="col-6 col-md-5">
                   <button className="btn w-100 p-3 rounded-4 border-0 shadow-sm"
-                    style={{ background: 'white', color: r.color, border: `2px solid ${r.color}` }}
-                    onClick={() => setRolSeleccionado(r)}>
-                    <FontAwesomeIcon icon={r.icono} size="2x" className="mb-2" />
-                    <div className="fw-bold small">{r.nombre}</div>
+                    style={{ background: 'white', color: roles[0].color, border: `2px solid ${roles[0].color}` }}
+                    onClick={() => setRolSeleccionado(roles[0])}>
+                    <FontAwesomeIcon icon={roles[0].icono} size="2x" className="mb-2" />
+                    <div className="fw-bold small">{roles[0].nombre}</div>
                   </button>
                 </div>
-              ))}
+                
+                <div className="col-6 col-md-5">
+                  <button className="btn w-100 p-3 rounded-4 border-0 shadow-sm"
+                    style={{ background: 'white', color: roles[1].color, border: `2px solid ${roles[1].color}` }}
+                    onClick={() => setRolSeleccionado(roles[1])}>
+                    <FontAwesomeIcon icon={roles[1].icono} size="2x" className="mb-2" />
+                    <div className="fw-bold small">{roles[1].nombre}</div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Botón de Recepcionista centrado */}
+              <div className="col-6 col-md-5 mx-auto">
+                <button className="btn w-100 p-3 rounded-4 border-0 shadow-sm"
+                  style={{ background: 'white', color: roles[2].color, border: `2px solid ${roles[2].color}` }}
+                  onClick={() => setRolSeleccionado(roles[2])}>
+                  <FontAwesomeIcon icon={roles[2].icono} size="2x" className="mb-2" />
+                  <div className="fw-bold small">{roles[2].nombre}</div>
+                </button>
+              </div>
             </div>
           </>
         ) : (
