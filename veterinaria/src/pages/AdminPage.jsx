@@ -1,6 +1,6 @@
 import React from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUserShield, faCalendarCheck, faPaw, faHeart, faChartLine } from '@fortawesome/free-solid-svg-icons';
+import { faUserShield, faCalendarCheck, faPaw, faHeart, faChartLine, faWallet } from '@fortawesome/free-solid-svg-icons';
 import { Link } from 'react-router-dom'; 
 
 const AdminPage = () => {

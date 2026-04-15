@@ -18,10 +18,11 @@ const ResetPassword = () => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!token || !email) {
+    // ✅ CORREGIDO: El token es lo importante, el email es opcional
+    if (!token) {
       setError('Enlace de recuperación inválido o incompleto. Volvé a solicitar uno nuevo desde el login.');
     }
-  }, [token, email]);
+  }, [token]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -37,12 +38,8 @@ const ResetPassword = () => {
       return;
     }
 
-    if (!newUsuario.trim()) {
-      setError('El nuevo usuario no puede estar vacío.');
-      return;
-    }
-
-    if (newUsuario.trim().length < 4) {
+    // ✅ CORREGIDO: newUsuario es OPCIONAL (como en el backend)
+    if (newUsuario.trim() && newUsuario.trim().length < 4) {
       setError('El nuevo usuario debe tener al menos 4 caracteres.');
       return;
     }
@@ -51,18 +48,18 @@ const ResetPassword = () => {
 
     try {
       console.log('[RESET] Intentando cambiar contraseña y usuario...');
-      console.log('[RESET] Token:', token.substring(0, 10) + '...');
-      console.log('[RESET] Email:', email);
-      console.log('[RESET] Nuevo usuario propuesto:', newUsuario.trim());
+      console.log('[RESET] Token:', token ? token.substring(0, 10) + '...' : 'NO DISPONIBLE');
+      console.log('[RESET] Email:', email || 'NO DISPONIBLE');
+      console.log('[RESET] Nuevo usuario propuesto:', newUsuario.trim() || '(sin cambios)');
 
       const response = await fetch('http://localhost:3001/api/recuperacion/forgot-password/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           token,
-          email,
+          // ✅ email es opcional, el backend usa el token para identificar al usuario
           newPassword: password,
-          newUsuario: newUsuario.trim()  // ← Enviamos también el nuevo usuario
+          newUsuario: newUsuario.trim() || null  // ← Enviamos null si está vacío (como espera el backend)
         })
       });
 
@@ -157,6 +154,7 @@ const ResetPassword = () => {
                 placeholder="Nuevo nombre de usuario"
                 value={newUsuario}
                 onChange={(e) => setNewUsuario(e.target.value)}
+                disabled={loading}
               />
             </div>
             <small className="text-muted">Si no querés cambiarlo, dejalo en blanco.</small>
@@ -192,7 +190,7 @@ const ResetPassword = () => {
             type="submit"
             className="btn text-white w-100 rounded-pill py-3 fw-bold shadow"
             style={{ background: '#663399' }}
-            disabled={loading || !token || !email}
+            disabled={loading || !token}
           >
             {loading ? 'Cambiando...' : 'Cambiar contraseña y usuario'}
           </button>

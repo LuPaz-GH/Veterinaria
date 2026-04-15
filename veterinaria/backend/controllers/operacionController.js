@@ -216,7 +216,14 @@ const operacionController = {
 
     actualizarTurno: async (req, res) => {
         try {
-            await operacionService.actualizarTurno(req.params.id, req.body);
+            if (operacionService.actualizarTurno) {
+                await operacionService.actualizarTurno(req.params.id, req.body);
+            } else {
+                await pool.query(
+                    'UPDATE turnos SET fecha = ?, tipo = ?, motivo = ?, es_urgencia = ? WHERE id = ?',
+                    [req.body.fecha, req.body.tipo, req.body.motivo, req.body.es_urgencia ? 1 : 0, req.params.id]
+                );
+            }
             res.json({ success: true });
         } catch (err) {
             console.error('Error al actualizar turno:', err);
@@ -318,7 +325,7 @@ const operacionController = {
         }
     },
 
-    // HISTORIAL CLÍNICO - CORREGIDO
+    // HISTORIAL CLÍNICO
     getHistorial: async (req, res) => {
         try {
             const { mascotaId } = req.params;
@@ -371,7 +378,6 @@ const operacionController = {
                 mascota_id
             });
 
-            // AUDITORÍA
             if (req.user?.id) {
                 const [empleado] = await pool.query('SELECT nombre FROM empleados WHERE id = ?', [req.user.id]);
                 const responsableNombre = empleado[0]?.nombre || 'Sistema';
@@ -455,7 +461,7 @@ const operacionController = {
         }
     },
 
-    // CAJA - AUDITORÍA INTEGRADA
+    // CAJA
     getMovimientosCaja: async (req, res) => {
         try {
             const movimientos = await operacionService.getMovimientosCaja();
@@ -629,7 +635,7 @@ const operacionController = {
         }
     },
 
-    // DASHBOARD
+    // DASHBOARD - REPORTES ✅ CORREGIDO
     getReportesDashboard: async (req, res) => {
         try {
             const reportes = await operacionService.getReportesDashboard();
@@ -640,9 +646,59 @@ const operacionController = {
         }
     },
 
+    // ATENDER CONSULTA
     atenderConsulta: async (req, res) => {
         try {
-            await operacionService.atenderConsulta(req.params.id, req.body);
+            const { diagnostico, tratamiento, peso, veterinario_id, mascota_id, nuevoPaciente_nombre } = req.body;
+            const turnoId = req.params.id;
+            const usuarioId = req.user?.id || veterinario_id;
+
+            let turnoData = [];
+            if (turnoId !== 'urgencia_directa') {
+                [turnoData] = await pool.query(`
+                    SELECT t.tipo, t.es_urgencia, m.nombre as mascota_nombre 
+                    FROM turnos t 
+                    LEFT JOIN mascotas m ON t.mascota_id = m.id 
+                    WHERE t.id = ?`, [turnoId]);
+            }
+
+            await operacionService.atenderConsulta(turnoId, { 
+                diagnostico, 
+                tratamiento, 
+                peso, 
+                veterinario_id, 
+                mascota_id 
+            });
+
+            if (usuarioId) {
+                const [empleado] = await pool.query('SELECT nombre FROM empleados WHERE id = ?', [usuarioId]);
+                const responsableNombre = empleado[0]?.nombre || 'Sistema';
+
+                let mascotaNombre = nuevoPaciente_nombre || 'Sin nombre';
+
+                if (mascotaNombre === 'Sin nombre' && mascota_id) {
+                    const [mRow] = await pool.query('SELECT nombre FROM mascotas WHERE id = ?', [mascota_id]);
+                    if (mRow.length > 0) mascotaNombre = mRow[0].nombre;
+                }
+
+                let productoDesc = '';
+                if (turnoId === 'urgencia_directa') {
+                    productoDesc = `🚨 Urgencia Inmediata: ${mascotaNombre}`;
+                } else if (turnoData[0] && turnoData[0].es_urgencia) {
+                    productoDesc = `🚨 Urgencia Atendida: ${mascotaNombre}`;
+                } else {
+                    productoDesc = `Atención Médica: ${mascotaNombre}`;
+                }
+
+                await pool.query(
+                    `INSERT INTO auditoria (fecha, producto, mascota, accion, responsable, modulo, id_referencia, eliminado) 
+                     VALUES (NOW(), ?, ?, 'Creado', ?, 'turnos', ?, 0)`,
+                    [productoDesc, mascotaNombre, responsableNombre, turnoId === 'urgencia_directa' ? null : turnoId]
+                );
+
+                console.log(`✅ [Auditoría OK] Registro creado para mascota: ${mascotaNombre}`);
+            }
+
             res.json({ success: true });
         } catch (err) {
             console.error('Error al atender consulta:', err);

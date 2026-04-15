@@ -24,7 +24,7 @@ const duenoController = {
 
     createDueno: async (req, res) => {
         try {
-            const { dni, nombre, mascotas } = req.body;
+            const { dni, nombre, telefono, email, direccion, mascotas } = req.body;
             const usuarioId = req.user ? req.user.id : null;
 
             if (dni) {
@@ -34,13 +34,38 @@ const duenoController = {
             
             const id = await duenoService.create(req.body);
 
+            // ==================== AUDITORÍA CON REINTENTOS MEJORADOS ====================
             if (usuarioId) {
                 const [empleado] = await pool.query('SELECT nombre FROM empleados WHERE id = ?', [usuarioId]);
                 const responsableNombre = empleado[0]?.nombre || 'Sistema';
 
                 let nombreMascota = null;
+
+                // 1. Primer intento desde el payload que envía el frontend
                 if (mascotas && Array.isArray(mascotas) && mascotas.length > 0) {
                     nombreMascota = mascotas[0].nombre || null;
+                }
+
+                // 2. Si no vino en el payload, reintentamos buscando en la base de datos
+                if (!nombreMascota) {
+                    console.log(`⏳ [AUDITORIA CREATE] Esperando mascotas para dueño ID: ${id} - Nombre: ${nombre}`);
+                    
+                    // Reintentar hasta 10 veces (4 segundos aprox)
+                    for (let intento = 1; intento <= 10; intento++) {
+                        await new Promise(resolve => setTimeout(resolve, 400));
+                        
+                        const [mascotaRows] = await pool.query(
+                            'SELECT nombre FROM mascotas WHERE dueno_id = ? ORDER BY id ASC LIMIT 1', 
+                            [id]
+                        );
+                        
+                        if (mascotaRows.length > 0) {
+                            nombreMascota = mascotaRows[0].nombre;
+                            console.log(`✅ [AUDITORIA CREATE] Mascota encontrada en intento ${intento}: ${nombreMascota}`);
+                            break;
+                        }
+                        console.log(`⏳ [AUDITORIA CREATE] Intento ${intento}/10 - Aún sin mascotas...`);
+                    }
                 }
 
                 await pool.query(
@@ -49,6 +74,8 @@ const duenoController = {
                      VALUES (NOW(), ?, ?, 'Creado', ?, 'clientes', ?, 0)`,
                     [`Cliente: ${nombre}`, nombreMascota, responsableNombre, id]
                 );
+
+                console.log(`✅ Auditoría creada - Cliente: ${nombre} | Mascota: ${nombreMascota || 'NINGUNA'}`);
             }
 
             res.status(201).json({ success: true, id });
@@ -70,11 +97,18 @@ const duenoController = {
                 const { nombre } = req.body;
 
                 let nombreMascota = null;
-                if (req.body.mascotas && Array.isArray(req.body.mascotas) && req.body.mascotas.length > 0) {
-                    nombreMascota = req.body.mascotas[0].nombre || null;
-                } else {
-                    const [mascotaRow] = await pool.query('SELECT nombre FROM mascotas WHERE dueno_id = ? LIMIT 1', [req.params.id]);
-                    nombreMascota = mascotaRow[0]?.nombre || null;
+                
+                // Buscar mascotas con reintentos
+                for (let intento = 1; intento <= 5; intento++) {
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    const [mascotaRow] = await pool.query(
+                        'SELECT nombre FROM mascotas WHERE dueno_id = ? LIMIT 1', 
+                        [req.params.id]
+                    );
+                    if (mascotaRow.length > 0) {
+                        nombreMascota = mascotaRow[0].nombre;
+                        break;
+                    }
                 }
 
                 await pool.query(
@@ -92,51 +126,36 @@ const duenoController = {
         }
     },
 
-    // ==================== BORRADO LÓGICO - VERSIÓN CORREGIDA ====================
     deleteDueno: async (req, res) => {
         try {
             console.log('🔥 deleteDueno llamado - ID:', req.params.id);
-            console.log('🔑 req.user:', req.user);
+            const usuarioId = req.user ? req.user.id : null;
 
-            const usuarioId = req.user ? req.user.id : null; 
-            
-            if (!usuarioId) {
-                console.log('⚠️ No hay usuarioId (authMiddleware falló?)');
-            }
-
-            // 1. OBTENER DATOS ANTES DEL BORRADO
-            // Consultamos antes porque después del soft-delete el SELECT podría no encontrarlo
+            // 1. Obtener datos antes del borrado
             const [duenoRows] = await pool.query('SELECT nombre FROM duenos WHERE id = ?', [req.params.id]);
             const duenoEncontrado = duenoRows[0];
-            
-            console.log('👤 Dueño encontrado en BD:', duenoEncontrado ? duenoEncontrado.nombre : 'NO ENCONTRADO');
 
             if (!duenoEncontrado) {
-                console.log('❌ No se puede borrar un dueño que no existe');
                 return res.status(404).json({ error: 'Dueño no encontrado' });
             }
 
-            // 2. EJECUTAR EL BORRADO LÓGICO
-            const eliminado = await duenoService.delete(req.params.id, usuarioId); 
-            console.log('🗑️ Resultado de soft delete:', eliminado);
+            // 2. Borrado lógico
+            const eliminado = await duenoService.delete(req.params.id, usuarioId);
 
             if (!eliminado) {
-                console.log('❌ duenoService.delete devolvió false');
                 return res.status(404).json({ error: 'Dueño no encontrado al intentar borrar' });
             }
             
-            // 3. REGISTRAR EN AUDITORÍA (Usando los datos que guardamos en el paso 1)
+            // 3. Auditoría
             if (usuarioId && duenoEncontrado) {
                 const [empleado] = await pool.query('SELECT nombre FROM empleados WHERE id = ?', [usuarioId]);
                 const responsableNombre = empleado[0]?.nombre || 'Sistema';
-                console.log('👷 Responsable:', responsableNombre);
 
                 const [mascotaRow] = await pool.query(
                     'SELECT nombre FROM mascotas WHERE dueno_id = ? LIMIT 1', 
                     [req.params.id]
                 );
                 const nombreMascota = mascotaRow[0]?.nombre || null;
-                console.log('🐶 Mascota encontrada:', nombreMascota);
 
                 await pool.query(
                     `INSERT INTO auditoria 
@@ -144,10 +163,6 @@ const duenoController = {
                      VALUES (NOW(), ?, ?, 'Eliminado', ?, 'clientes', ?, 1)`,
                     [`Cliente: ${duenoEncontrado.nombre}`, nombreMascota, responsableNombre, req.params.id]
                 );
-
-                console.log(`✅ [Auditoría] Cliente ELIMINADO → ${duenoEncontrado.nombre} | Mascota: ${nombreMascota || 'ninguna'}`);
-            } else {
-                console.log('⚠️ No se registró en auditoría (falta usuarioId o datos del dueño)');
             }
             
             res.json({ success: true, message: 'Registro movido a la papelera' });
@@ -159,7 +174,6 @@ const duenoController = {
 
     restaurarDueno: async (req, res) => {
         try {
-            // 1. OBTENER DATOS ANTES DE RESTAURAR
             const [duenoRows] = await pool.query('SELECT nombre FROM duenos WHERE id = ?', [req.params.id]);
             const duenoData = duenoRows[0];
 
@@ -171,7 +185,10 @@ const duenoController = {
                 const [empleado] = await pool.query('SELECT nombre FROM empleados WHERE id = ?', [usuarioId]);
                 const responsableNombre = empleado[0]?.nombre || 'Sistema';
 
-                const [mascotaRow] = await pool.query('SELECT nombre FROM mascotas WHERE dueno_id = ? LIMIT 1', [req.params.id]);
+                const [mascotaRow] = await pool.query(
+                    'SELECT nombre FROM mascotas WHERE dueno_id = ? LIMIT 1', 
+                    [req.params.id]
+                );
                 const nombreMascota = mascotaRow[0]?.nombre || null;
 
                 await pool.query(

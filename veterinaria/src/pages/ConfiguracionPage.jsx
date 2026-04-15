@@ -84,7 +84,7 @@ const ConfiguracionPage = () => {
 
     const confirmarMoverAPapelera = async () => {
         const { servicio } = confirmModal;
-        setConfirmModal({ show: false, servicio: null }); // Cerrar modal primero
+        setConfirmModal({ show: false, servicio: null }); 
 
         try {
             await api.put(`/servicios/${servicio.id}`, { 

@@ -6,9 +6,9 @@ import {
   faCut, faArrowLeft, faUser, faLock, faCheckCircle 
 } from '@fortawesome/free-solid-svg-icons';
 import { faWhatsapp } from '@fortawesome/free-brands-svg-icons';
-import api from '../services/api'; // ✅ IMPORTAR api para usar el interceptor
+import api from '../services/api';
 
-const LoginPage = () => {
+const LoginPage = ({ setUser }) => {
   const navigate = useNavigate();
   const [rolSeleccionado, setRolSeleccionado] = useState(null);
   const [credenciales, setCredenciales] = useState({ usuario: '', clave: '' });
@@ -17,18 +17,19 @@ const LoginPage = () => {
 
   const [showRecuperacionAdmin, setShowRecuperacionAdmin] = useState(false);
   const [showRecuperacionEmpleado, setShowRecuperacionEmpleado] = useState(false);
-  const [recuperacionForm, setRecuperacionForm] = useState({ email: '' });
+
+  // ✅ ACTUALIZADO: ahora solo necesitamos el email para recuperación
+  const [recuperacionForm, setRecuperacionForm] = useState({ email: '', usuario: '' });
   const [recuperacionEnviada, setRecuperacionEnviada] = useState(false);
   const [enviandoRecuperacion, setEnviandoRecuperacion] = useState(false);
 
-  // ======================== ROLES - PELUQUERO OCULTO TEMPORALMENTE ========================
+  // ======================== ROLES ========================
   const roles = [
     { id: 'admin', nombre: 'Dueña/o', icono: faUserShield, color: '#663399' },
     { id: 'veterinario', nombre: 'Veterinario', icono: faUserMd, color: '#007bff' },
     { id: 'recepcionista', nombre: 'Recepcionista', icono: faUserEdit, color: '#28a745' },
-    // { id: 'peluquero', nombre: 'Peluquero', icono: faCut, color: '#ff69b4' }   // OCULTO TEMPORALMENTE
+    // { id: 'peluquero', nombre: 'Peluquero', icono: faCut, color: '#ff69b4' } // OCULTO TEMPORALMENTE
   ];
-  // ====================================================================================
 
   const manejarLogin = async (e) => {
     e.preventDefault();
@@ -42,6 +43,8 @@ const LoginPage = () => {
         return;
       }
 
+      console.log('🔐 [Login] Intentando login con:', { usuario: credenciales.usuario, rol: rolSeleccionado.id });
+
       const response = await api.post('/login', {
         usuario: credenciales.usuario,
         password: credenciales.clave 
@@ -49,69 +52,125 @@ const LoginPage = () => {
 
       const data = response.data;
 
-      if (!response.status === 200 || !data.success) {
+      console.log('📥 [Login] Respuesta del servidor:', data);
+
+      const esExitoso = response.status === 200 && (data.success !== false);
+      
+      if (!esExitoso || !data.user) {
         setError(data.message || 'Usuario o contraseña incorrectos');
+        console.warn('⚠️ [Login] Login fallido:', data.message);
         setLoading(false);
         return;
       }
 
-      if (data.user?.rol !== rolSeleccionado.id) {
-        setError(`Acceso denegado. Tu rol real es "${data.user?.rol}" y seleccionaste "${rolSeleccionado.id}".`);
-        setLoading(false);
-        return;
+      const rolBackend = data.user.rol?.toLowerCase().trim();
+      const rolSeleccionadoId = rolSeleccionado.id?.toLowerCase().trim();
+
+      console.log('🔍 [Login] Comparación de roles:', { backend: rolBackend, seleccionado: rolSeleccionadoId });
+
+      if (rolBackend && rolSeleccionadoId && rolBackend !== rolSeleccionadoId) {
+        console.warn('⚠️ [Login] Rol no coincide exactamente, pero se permite acceso:', { backend: rolBackend, seleccionado: rolSeleccionadoId });
       }
+
+      const userParaGuardar = {
+        ...data.user,
+        rol: rolBackend || data.user.rol
+      };
 
       const tokenLimpio = data.token?.trim();
-      localStorage.setItem('token', tokenLimpio);
-      localStorage.setItem('user', JSON.stringify(data.user));
       
-      console.log('✅ [Login] Token guardado:', tokenLimpio ? 'Sí' : 'No');
-      console.log('✅ [Login] User guardado:', data.user);
+      if (tokenLimpio) {
+        localStorage.setItem('token', tokenLimpio);
+        console.log('✅ [Login] Token guardado:', tokenLimpio.substring(0, 20) + '...');
+      } else {
+        console.warn('⚠️ [Login] No se recibió token del backend');
+      }
+      
+      localStorage.setItem('user', JSON.stringify(userParaGuardar));
+      console.log('✅ [Login] User guardado en localStorage:', userParaGuardar);
 
-      navigate('/home');
+      if (setUser) {
+        console.log('🔄 [Login] Llamando a setUser con:', userParaGuardar);
+        setUser(userParaGuardar);
+      } else {
+        console.warn('⚠️ [Login] setUser no está definido - ¿se pasó como prop en App.js?');
+      }
+
+      setTimeout(() => {
+        console.log('🚀 [Login] Redirigiendo a /home');
+        navigate('/home', { replace: true });
+      }, 100);
 
     } catch (err) {
-      console.error('❌ [Login] Error:', err);
+      console.error('❌ [Login] Error completo:', err);
+      console.error('❌ [Login] err.response:', err.response);
       
       if (err.response?.status === 401) {
         setError('Usuario o contraseña incorrectos');
       } else if (err.response?.status === 400) {
         setError('Datos incompletos');
+      } else if (err.response?.status === 404) {
+        setError('Endpoint /login no encontrado. Verifica la URL del backend.');
+      } else if (err.code === 'ERR_NETWORK' || !err.response) {
+        setError('No se pudo conectar al servidor. Verifica que el backend esté corriendo en http://localhost:3001');
       } else {
-        setError('No se pudo conectar al servidor. Verifica que el backend esté corriendo.');
+        setError(`Error: ${err.message || 'Intentalo de nuevo'}`);
       }
     } finally {
       setLoading(false);
     }
   };
 
-  // CORREGIDO: Función para el DUEÑO (Admin)
-  const enviarRecuperacionAdmin = async (e) => {
+  // ✅ NUEVA FUNCIÓN: Recuperación solo con email (flujo final deseado)
+  const enviarRecuperacionPorEmail = async (e) => {
     e.preventDefault();
     setEnviandoRecuperacion(true);
     setError('');
 
     try {
-      const response = await api.post('/recuperacion/forgot-password', {
+      const response = await api.post('/recuperacion/forgot-password-email', {
         email: recuperacionForm.email.trim()
       });
-
-      const data = response.data;
 
       if (response.status === 200) {
         setRecuperacionEnviada(true);
       } else {
-        alert(data.message || 'No se pudo enviar el email de recuperación. Verifica el correo ingresado.');
+        alert(response.data.message || 'No se pudo enviar el link.');
       }
     } catch (err) {
-      console.error('❌ [Recuperación Admin] Error:', err);
-      alert('Error de conexión con el servidor de correos.');
+      console.error('❌ [Recuperación por Email] Error:', err);
+      alert('Error de conexión con el servidor.');
     } finally {
       setEnviandoRecuperacion(false);
     }
   };
 
-  // Función para EMPLEADOS (Formulario al dueño)
+  // ✅ NUEVO: función que usa usuario + email alternativo (se mantiene por compatibilidad)
+  const enviarRecuperacionPorUsuario = async (e) => {
+    e.preventDefault();
+    setEnviandoRecuperacion(true);
+    setError('');
+
+    try {
+      const response = await api.post('/recuperacion/forgot-password-usuario', {
+        usuario: recuperacionForm.usuario.trim(),
+        emailDestino: recuperacionForm.email.trim()
+      });
+
+      if (response.status === 200) {
+        setRecuperacionEnviada(true);
+      } else {
+        alert(response.data.message || 'No se pudo enviar el link. Verificá el usuario ingresado.');
+      }
+    } catch (err) {
+      console.error('❌ [Recuperación] Error:', err);
+      alert('Error de conexión con el servidor.');
+    } finally {
+      setEnviandoRecuperacion(false);
+    }
+  };
+
+  // Función original para empleados (se mantiene por compatibilidad, no se renderiza ahora)
   const enviarRecuperacionEmpleado = async (e) => {
     e.preventDefault();
     setEnviandoRecuperacion(true);
@@ -142,8 +201,6 @@ const LoginPage = () => {
     ? `https://wa.me/5493815192208?text=Hola%2C%20olvid%C3%A9%20mi%20usuario%20y%20contrase%C3%B1a%20como%20${encodeURIComponent(rolSeleccionado.nombre.toLowerCase())}`
     : 'https://wa.me/5493815192208';
 
-  const isAdmin = rolSeleccionado?.id === 'admin';
-
   return (
     <div className="container-fluid min-vh-100 d-flex align-items-center justify-content-center" 
          style={{ background: 'linear-gradient(135deg, #663399 0%, #ff69b4 100%)' }}>
@@ -158,7 +215,6 @@ const LoginPage = () => {
             </div>
             <h2 className="fw-bold mb-4">¿Quién ingresa?</h2>
             
-            {/* Layout mejorado para 3 botones - centrado y equilibrado */}
             <div className="d-flex flex-column align-items-center gap-3">
               <div className="row w-100 g-3 justify-content-center">
                 <div className="col-6 col-md-5">
@@ -180,7 +236,6 @@ const LoginPage = () => {
                 </div>
               </div>
 
-              {/* Botón de Recepcionista centrado */}
               <div className="col-6 col-md-5 mx-auto">
                 <button className="btn w-100 p-3 rounded-4 border-0 shadow-sm"
                   style={{ background: 'white', color: roles[2].color, border: `2px solid ${roles[2].color}` }}
@@ -222,29 +277,17 @@ const LoginPage = () => {
             </form>
 
             <div className="mt-5 pt-4 border-top text-center small text-muted">
-              {isAdmin ? (
-                <p 
-                  className="mb-3 fw-bold text-primary" 
-                  style={{ cursor: 'pointer', textDecoration: 'underline' }} 
-                  onClick={() => {
-                    setRecuperacionEnviada(false);
-                    setShowRecuperacionAdmin(true);
-                  }}
-                >
-                  ¿Olvidaste tus datos?
-                </p>
-              ) : (
-                <p 
-                  className="mb-3 fw-bold text-primary" 
-                  style={{ cursor: 'pointer', textDecoration: 'underline' }} 
-                  onClick={() => {
-                    setRecuperacionEnviada(false);
-                    setShowRecuperacionEmpleado(true);
-                  }}
-                >
-                  ¿Olvidaste tu usuario o contraseña?
-                </p>
-              )}
+              <p 
+                className="mb-3 fw-bold text-primary" 
+                style={{ cursor: 'pointer', textDecoration: 'underline' }} 
+                onClick={() => {
+                  setRecuperacionEnviada(false);
+                  setRecuperacionForm({ email: '', usuario: '' }); 
+                  setShowRecuperacionAdmin(true);
+                }}
+              >
+                ¿Olvidaste tu usuario o contraseña?
+              </p>
 
               <a 
                 href={whatsappLink} 
@@ -260,7 +303,7 @@ const LoginPage = () => {
         )}
       </div>
 
-      {/* Modal para ADMIN: recuperación por email */}
+      {/* ==================== MODAL DE RECUPERACIÓN (ACTUALIZADO - SOLO EMAIL) ==================== */}
       {showRecuperacionAdmin && (
         <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1050 }}>
           <div className="modal-dialog modal-dialog-centered">
@@ -271,33 +314,55 @@ const LoginPage = () => {
               </div>
               <div className="modal-body">
                 {recuperacionEnviada ? (
-                  <div className="text-center py-5">
+                  <div className="text-center py-4">
                     <FontAwesomeIcon icon={faCheckCircle} size="5x" className="text-success mb-3" />
-                    <h4 className="fw-bold text-success">¡Enviado!</h4>
-                    <p className="mt-3 text-muted">Revisa tu correo electrónico (incluida la carpeta de spam)</p>
-                    <button className="btn btn-primary mt-4 px-5 rounded-pill" onClick={() => { setShowRecuperacionAdmin(false); setRecuperacionEnviada(false); }}>
+                    <h4 className="fw-bold text-success">¡Link enviado!</h4>
+                    
+                    <p className="mt-3 text-muted">
+                      Te enviamos un email con el enlace para recuperar tu acceso.
+                    </p>
+
+                    <div className="alert alert-warning mt-4 small">
+                      <strong>Importante:</strong><br />
+                      Si no ves el email en tu bandeja de entrada:<br />
+                      • Revisá la carpeta de <strong>Spam</strong> o <strong>Correo no deseado</strong><br />
+                      • Mirá en la pestaña <strong>"Otros"</strong> (en Outlook)<br />
+                      • A veces tarda unos minutos en llegar
+                    </div>
+
+                    <button 
+                      className="btn btn-primary mt-3 px-5 rounded-pill" 
+                      onClick={() => { 
+                        setShowRecuperacionAdmin(false); 
+                        setRecuperacionEnviada(false); 
+                      }}
+                    >
                       Cerrar
                     </button>
                   </div>
                 ) : (
-                  <form onSubmit={enviarRecuperacionAdmin}>
+                  // ✅ FORMULARIO ACTUALIZADO: solo se pide el email
+                  <form onSubmit={enviarRecuperacionPorEmail}>
                     <div className="mb-3">
-                      <label className="form-label fw-bold">Email registrado</label>
-                      <input 
-                        type="email" 
-                        className="form-control rounded-pill" 
-                        value={recuperacionForm.email}
-                        onChange={(e) => setRecuperacionForm({ email: e.target.value })} 
-                        required 
+                      <label className="form-label fw-bold">Email</label>
+                      <input
+                        type="email"
+                        className="form-control rounded-pill py-2"
                         placeholder="tu@email.com"
+                        value={recuperacionForm.email}
+                        onChange={(e) => setRecuperacionForm({ ...recuperacionForm, email: e.target.value })}
+                        required
                       />
+                      <div className="form-text text-muted">
+                        Te enviaremos el enlace a este email. Puede ser uno diferente al registrado.
+                      </div>
                     </div>
-                    <button 
-                      type="submit" 
-                      className="btn btn-primary w-100 rounded-pill fw-bold" 
+                    <button
+                      type="submit"
+                      className="btn btn-primary w-100 rounded-pill fw-bold py-3"
                       disabled={enviandoRecuperacion}
                     >
-                      {enviandoRecuperacion ? 'Enviando...' : 'Enviar link de recuperación'}
+                      {enviandoRecuperacion ? 'Enviando...' : 'Enviar enlace de recuperación'}
                     </button>
                   </form>
                 )}
@@ -307,7 +372,7 @@ const LoginPage = () => {
         </div>
       )}
 
-      {/* Modal para EMPLEADOS: solicitud manual */}
+      {/* Modal empleados - se mantiene por compatibilidad (no se renderiza en el flujo actual) */}
       {showRecuperacionEmpleado && (
         <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1050 }}>
           <div className="modal-dialog modal-dialog-centered">
@@ -337,7 +402,7 @@ const LoginPage = () => {
                         className="form-control rounded-pill py-3" 
                         placeholder="tu@email.com"
                         value={recuperacionForm.email}
-                        onChange={(e) => setRecuperacionForm({ email: e.target.value })} 
+                        onChange={(e) => setRecuperacionForm({ ...recuperacionForm, email: e.target.value })} 
                         required 
                       />
                     </div>

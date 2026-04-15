@@ -12,9 +12,10 @@ import {
   faPencilAlt,
   faCheckCircle,
   faKey,
-  faEnvelopeOpenText,
   faTrashRestore,
-  faTimes
+  faTimes,
+  faChevronLeft,
+  faChevronRight
 } from '@fortawesome/free-solid-svg-icons';
 import ConfirmModal from '../component/ConfirmModal';
 
@@ -26,7 +27,7 @@ const GestionEmpleados = () => {
 
   const [showModal, setShowModal] = useState(false);
   const [empleadoEdit, setEmpleadoEdit] = useState(null);
-  const [form, setForm] = useState({ nombre: '', usuario: '', password: '', rol: 'recepcionista' });
+  const [form, setForm] = useState({ nombre: '', usuario: '', email: '', password: '', rol: 'recepcionista' });
 
   // Estados para papelera
   const [showPapelera, setShowPapelera] = useState(false);
@@ -35,18 +36,16 @@ const GestionEmpleados = () => {
   // Estados para confirmación
   const [showConfirm, setShowConfirm] = useState(false);
   const [idToDelete, setIdToDelete] = useState(null);
-  const [showConfirmAtender, setShowConfirmAtender] = useState(false);
-  const [idToMark, setIdToMark] = useState(null);
 
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
-  const [solicitudes, setSolicitudes] = useState([]);
-  const [showSolicitudes, setShowSolicitudes] = useState(false);
+  // ✅ ESTADOS PARA PAGINACIÓN
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [empleadosPorPagina] = useState(5); // Mostramos 5 empleados por página
 
   useEffect(() => {
     fetchEmpleados();
-    fetchSolicitudes();
     fetchEliminados();
   }, []);
 
@@ -55,8 +54,8 @@ const GestionEmpleados = () => {
       const res = await fetch('http://localhost:3001/api/empleados');
       if (!res.ok) throw new Error('Error al cargar empleados');
       const data = await res.json();
-      // Filtramos solo los activos para la tabla principal
       setEmpleados(data.filter(emp => emp.activo === 1));
+      setPaginaActual(1); // Resetear a primera página al recargar
     } catch (err) {
       setError('No se pudieron cargar los empleados');
     } finally {
@@ -72,38 +71,6 @@ const GestionEmpleados = () => {
       setEmpleadosEliminados(data);
     } catch (err) {
       console.error("Error cargando papelera", err);
-    }
-  };
-
-  const fetchSolicitudes = async () => {
-    try {
-      const res = await fetch('http://localhost:3001/api/recuperacion');
-      if (!res.ok) throw new Error('Error al cargar solicitudes');
-      const data = await res.json();
-      setSolicitudes(data);
-    } catch (err) {
-      setSolicitudes([]);
-    }
-  };
-
-  const confirmarAtendida = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:3001/api/recuperacion/${idToMark}`, {
-        method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ estado: 'atendida' })
-      });
-      if (!res.ok) throw new Error('No se pudo actualizar');
-      setShowConfirmAtender(false);
-      setSuccessMessage('Solicitud marcada como atendida.');
-      setShowSuccessModal(true);
-      fetchSolicitudes();
-    } catch (err) {
-      alert(err.message);
     }
   };
 
@@ -153,7 +120,6 @@ const GestionEmpleados = () => {
     }
   };
 
-  // --- LÓGICA DE BORRADO LÓGICO ---
   const eliminarLogico = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -163,7 +129,7 @@ const GestionEmpleados = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ activo: 0 }) // Se corrigió 'estado' por 'activo'
+        body: JSON.stringify({ activo: 0 })
       });
       if (!res.ok) throw new Error('Error al mover a papelera');
       fetchEmpleados();
@@ -211,14 +177,42 @@ const GestionEmpleados = () => {
   };
 
   const getRolBadge = (rol) => {
-    const colors = { admin: 'bg-dark', veterinario: 'bg-primary', recepcionista: 'bg-success', peluquero: 'bg-info' };
+    const colors = { admin: 'bg-dark', veterinario: 'bg-primary', recepcionista: 'bg-success' };
     return <span className={`badge ${colors[rol] || 'bg-secondary'} px-3 py-2 text-capitalize`}>{rol}</span>;
   };
 
+  // ✅ LÓGICA DE FILTRADO
   const empleadosFiltrados = empleados.filter(emp => 
     emp.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
     emp.rol.toLowerCase().includes(busqueda.toLowerCase())
   );
+
+  // ✅ LÓGICA DE PAGINACIÓN
+  const indiceUltimoEmpleado = paginaActual * empleadosPorPagina;
+  const indicePrimerEmpleado = indiceUltimoEmpleado - empleadosPorPagina;
+  const empleadosPaginaActual = empleadosFiltrados.slice(indicePrimerEmpleado, indiceUltimoEmpleado);
+  const totalPaginas = Math.ceil(empleadosFiltrados.length / empleadosPorPagina);
+
+  const cambiarPagina = (numeroPagina) => {
+    setPaginaActual(numeroPagina);
+  };
+
+  const paginaSiguiente = () => {
+    if (paginaActual < totalPaginas) {
+      setPaginaActual(paginaActual + 1);
+    }
+  };
+
+  const paginaAnterior = () => {
+    if (paginaActual > 1) {
+      setPaginaActual(paginaActual - 1);
+    }
+  };
+
+  // Resetear a página 1 cuando cambia la búsqueda
+  React.useEffect(() => {
+    setPaginaActual(1);
+  }, [busqueda]);
 
   if (loading) return <div className="text-center py-5 fw-bold text-white">Cargando...</div>;
 
@@ -236,7 +230,7 @@ const GestionEmpleados = () => {
 
         <div className="d-flex justify-content-between align-items-center mb-4">
             <div>
-              <button className="btn btn-primary shadow-sm rounded-pill px-4 fw-bold me-3" onClick={() => { setEmpleadoEdit(null); setForm({nombre:'', usuario:'', password:'', rol:'recepcionista'}); setShowModal(true); }}>
+              <button className="btn btn-primary shadow-sm rounded-pill px-4 fw-bold me-3" onClick={() => { setEmpleadoEdit(null); setForm({nombre:'', usuario:'', email:'', password:'', rol:'recepcionista'}); setShowModal(true); }}>
                 <FontAwesomeIcon icon={faUserPlus} className="me-2" /> + Nuevo
               </button>
             </div>
@@ -256,15 +250,8 @@ const GestionEmpleados = () => {
             </div>
         </div>
 
-        <div className="mb-5">
-          <button className="btn btn-info shadow-lg rounded-pill px-5 py-3 fw-bold text-white" onClick={() => setShowSolicitudes(!showSolicitudes)}>
-            <FontAwesomeIcon icon={faEnvelopeOpenText} size="lg" className="me-2" />
-            Solicitudes de recuperación ({solicitudes.filter(s => s.estado === 'pendiente').length} pendientes)
-          </button>
-        </div>
-
         {/* TABLA PRINCIPAL */}
-        <div className="card border-0 shadow-lg rounded-4 overflow-hidden mb-5">
+        <div className="card border-0 shadow-lg rounded-4 overflow-hidden mb-4">
           <table className="table table-hover mb-0">
             <thead className="table-light">
               <tr>
@@ -275,58 +262,63 @@ const GestionEmpleados = () => {
               </tr>
             </thead>
             <tbody>
-              {empleadosFiltrados.map(emp => (
-                <tr key={emp.id} className="align-middle">
-                  <td className="ps-4 fw-medium">{emp.nombre}</td>
-                  <td>{emp.usuario}</td>
-                  <td>{getRolBadge(emp.rol)}</td>
-                  <td className="text-end pe-4">
-                    <button className="btn btn-sm btn-outline-warning me-2 rounded-circle" onClick={() => resetPassword(emp.id, emp.nombre)} style={{width:'35px', height:'35px', backgroundColor: 'white'}}><FontAwesomeIcon icon={faKey}/></button>
-                    <button className="btn btn-sm btn-outline-primary me-2 rounded-circle" onClick={() => { setEmpleadoEdit(emp); setForm({nombre:emp.nombre, usuario:emp.usuario, password:'', rol:emp.rol}); setShowModal(true); }} style={{width:'35px', height:'35px', backgroundColor: 'white'}}><FontAwesomeIcon icon={faPencilAlt}/></button>
-                    <button className="btn btn-sm btn-outline-danger rounded-circle" onClick={() => { setIdToDelete(emp.id); setShowConfirm(true); }} style={{width:'35px', height:'35px', backgroundColor: 'white'}}><FontAwesomeIcon icon={faTrash}/></button>
+              {empleadosPaginaActual.length === 0 ? (
+                <tr>
+                  <td colSpan="4" className="text-center py-4 text-muted">
+                    {empleadosFiltrados.length === 0 ? 'No se encontraron empleados' : 'No hay empleados en esta página'}
                   </td>
                 </tr>
-              ))}
+              ) : (
+                empleadosPaginaActual.map(emp => (
+                  <tr key={emp.id} className="align-middle">
+                    <td className="ps-4 fw-medium">{emp.nombre}</td>
+                    <td>{emp.usuario}</td>
+                    <td>{getRolBadge(emp.rol)}</td>
+                    <td className="text-end pe-4">
+                      <button className="btn btn-sm btn-outline-warning me-2 rounded-circle" onClick={() => resetPassword(emp.id, emp.nombre)} style={{width:'35px', height:'35px', backgroundColor: 'white'}}><FontAwesomeIcon icon={faKey}/></button>
+                      <button className="btn btn-sm btn-outline-primary me-2 rounded-circle" onClick={() => { setEmpleadoEdit(emp); setForm({nombre:emp.nombre, usuario:emp.usuario, email: emp.email || '', password:'', rol:emp.rol}); setShowModal(true); }} style={{width:'35px', height:'35px', backgroundColor: 'white'}}><FontAwesomeIcon icon={faPencilAlt}/></button>
+                      <button className="btn btn-sm btn-outline-danger rounded-circle" onClick={() => { setIdToDelete(emp.id); setShowConfirm(true); }} style={{width:'35px', height:'35px', backgroundColor: 'white'}}><FontAwesomeIcon icon={faTrash}/></button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
 
-        {/* TABLA SOLICITUDES */}
-        {showSolicitudes && (
-          <div className="mt-5 pb-5">
-            <div className="card border-0 shadow-lg rounded-4 overflow-hidden">
-              <div className="card-header bg-info text-white py-3"><h5 className="mb-0 fw-bold">Solicitudes de Recuperación</h5></div>
-              <div className="card-body p-0">
-                <table className="table table-hover mb-0">
-                  <thead className="table-light">
-                    <tr>
-                      <th className="ps-4">Nombre</th>
-                      <th>Email</th>
-                      <th>Fecha</th>
-                      <th>Estado</th>
-                      <th className="text-end pe-4">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {solicitudes.map(sol => (
-                      <tr key={sol.id} className="align-middle">
-                        <td className="ps-4">{sol.nombre}</td>
-                        <td>{sol.email || '-'}</td>
-                        <td>{new Date(sol.fecha).toLocaleString('es-AR')}</td>
-                        <td><span className={`badge ${sol.estado === 'pendiente' ? 'bg-warning text-dark' : 'bg-success'} px-3 py-2`}>{sol.estado}</span></td>
-                        <td className="text-end pe-4">
-                          {sol.estado === 'pendiente' && (
-                            <button className="btn btn-sm btn-success shadow-sm rounded-pill px-3" onClick={() => { setIdToMark(sol.id); setShowConfirmAtender(true); }}>
-                              <FontAwesomeIcon icon={faCheckCircle} className="me-1" /> Atendida
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+        {/* ✅ CONTROLES DE PAGINACIÓN */}
+        {totalPaginas > 1 && (
+          <div className="d-flex justify-content-between align-items-center mb-5">
+            <div className="text-white">
+              <small>
+                Mostrando {empleadosPaginaActual.length} de {empleadosFiltrados.length} empleados
+                {busqueda && ` (filtrados de ${empleados.length} totales)`}
+              </small>
             </div>
+            
+            <nav aria-label="Paginación de empleados">
+              <ul className="pagination pagination-sm mb-0">
+                <li className={`page-item ${paginaActual === 1 ? 'disabled' : ''}`}>
+                  <button className="page-link rounded-start-pill" onClick={paginaAnterior} disabled={paginaActual === 1}>
+                    <FontAwesomeIcon icon={faChevronLeft} size="xs" /> Anterior
+                  </button>
+                </li>
+                
+                {Array.from({ length: totalPaginas }, (_, i) => i + 1).map((numero) => (
+                  <li key={numero} className={`page-item ${paginaActual === numero ? 'active' : ''}`}>
+                    <button className="page-link" onClick={() => cambiarPagina(numero)}>
+                      {numero}
+                    </button>
+                  </li>
+                ))}
+                
+                <li className={`page-item ${paginaActual === totalPaginas ? 'disabled' : ''}`}>
+                  <button className="page-link rounded-end-pill" onClick={paginaSiguiente} disabled={paginaActual === totalPaginas}>
+                    Siguiente <FontAwesomeIcon icon={faChevronRight} size="xs" />
+                  </button>
+                </li>
+              </ul>
+            </nav>
           </div>
         )}
       </div>
@@ -393,13 +385,24 @@ const GestionEmpleados = () => {
               <form onSubmit={guardarEmpleado} className="modal-body p-4">
                 <div className="mb-3"><label className="form-label fw-bold">Nombre</label><input type="text" className="form-control" value={form.nombre} onChange={(e)=>setForm({...form, nombre: e.target.value})} required /></div>
                 <div className="mb-3"><label className="form-label fw-bold">Usuario</label><input type="text" className="form-control" value={form.usuario} onChange={(e)=>setForm({...form, usuario: e.target.value})} required /></div>
+                <div className="mb-3">
+                  <label className="form-label fw-bold">Email <span className="text-danger">*</span></label>
+                  <input 
+                    type="email" 
+                    className="form-control" 
+                    value={form.email} 
+                    onChange={(e)=>setForm({...form, email: e.target.value})} 
+                    required 
+                    placeholder="empleado@ejemplo.com"
+                  />
+                  <div className="form-text">Se usará para recuperación de contraseña</div>
+                </div>
                 <div className="mb-3"><label className="form-label fw-bold">Password</label><input type="password" className="form-control" value={form.password} onChange={(e)=>setForm({...form, password: e.target.value})} required={!empleadoEdit} /></div>
                 <div className="mb-4">
                   <label className="form-label fw-bold">Rol</label>
                   <select className="form-select" value={form.rol} onChange={(e)=>setForm({...form, rol: e.target.value})}>
                     <option value="recepcionista">Recepcionista</option>
                     <option value="veterinario">Veterinario</option>
-                    <option value="peluquero">Peluquero</option>
                     <option value="admin">Administrador</option>
                   </select>
                 </div>
@@ -431,15 +434,6 @@ const GestionEmpleados = () => {
         onConfirm={eliminarLogico}
         title="Mover a Papelera"
         message="¿Estás seguro de que deseas mover a este empleado a la papelera?"
-      />
-
-      {/* MODAL CONFIRMAR ATENDER */}
-      <ConfirmModal 
-        show={showConfirmAtender}
-        onClose={() => setShowConfirmAtender(false)}
-        onConfirm={confirmarAtendida}
-        title="Marcar como Atendida"
-        message="¿Confirmas que ya has gestionado esta solicitud de recuperación? Se marcará como completada en el sistema."
       />
     </div>
   );

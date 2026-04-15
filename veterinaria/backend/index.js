@@ -107,7 +107,9 @@ app.use('/api/auditoria', auditoriaRouter);
 app.use('/api/servicios', servicioRouter);
 
 // Rutas protegidas
-app.use('/api', authMiddleware, operacionRouter);
+// ✅ CAMBIO: Se quitó authMiddleware de aquí para que la autenticación 
+// se controle por ruta dentro de operacionRouter.js
+app.use('/api', operacionRouter);
 
 // Ruta de prueba
 app.get('/', (req, res) => {

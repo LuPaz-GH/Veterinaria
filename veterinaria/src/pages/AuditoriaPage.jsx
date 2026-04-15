@@ -7,7 +7,7 @@ import {
   faTimes, faExclamationTriangle, faCheckCircle,
   faInfoCircle, faUndo, faPaw, faWallet, faUsers, 
   faScissors, faBox, faHeartbeat, faUserTie, faTrash,
-  faTrashRestore
+  faTrashRestore, faAmbulance
 } from '@fortawesome/free-solid-svg-icons';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -86,11 +86,16 @@ const AuditoriaPage = ({ user }) => {
         mostrarEliminados: filtros.mostrarEliminados ? 'true' : 'false'
       };
 
+      console.log('🔍 Parámetros de búsqueda:', params);
+      
       const res = await api.get('/auditoria/historial', { params });
       
-      // SE ELIMINÓ EL FILTRO ESPECÍFICO PARA QUE APAREZCAN TODOS LOS MOVIMIENTOS
+      console.log('📊 Registros recibidos:', res.data.datos?.length || 0);
+      console.log('Primeros registros:', res.data.datos?.slice(0, 3));
+      
       setMovimientos(res.data.datos || []);
       setTotalRegistros(res.data.total || 0);
+      
     } catch (err) {
       console.error("❌ Error en cargarHistorial:", err.response?.data || err);
       toast.error('Error al cargar el historial');
@@ -245,13 +250,12 @@ const AuditoriaPage = ({ user }) => {
     doc.text("Historial de Auditoría", 14, 20);
     autoTable(doc, {
       startY: 25,
-      head: [['Fecha', 'Módulo', 'Acción', 'Elemento Afectado', 'Mascota', 'Responsable']],
+      head: [['Fecha', 'Módulo', 'Acción', 'Elemento Afectado', 'Responsable']],
       body: movimientos.map(m => [
         new Date(m.fecha).toLocaleString('es-AR'), 
         m.modulo || '-', 
         m.accion || '-',
         m.producto || m.servicio || '-',
-        m.mascota || '-',
         m.responsable || '-'
       ])
     });
@@ -293,10 +297,6 @@ const AuditoriaPage = ({ user }) => {
     if (m.modulo === 'turnos' || m.modulo === 'estetica') return m.producto || m.servicio || 'Turno registrado';
     if (m.modulo === 'historial') return m.producto || 'Consulta registrada';
     return m.producto || m.servicio || m.nombre || '-';
-  };
-
-  const getMascota = (m) => {
-    return m.mascota || '-';
   };
 
   const totalPaginas = Math.ceil(totalRegistros / limite);
@@ -407,7 +407,7 @@ const AuditoriaPage = ({ user }) => {
           </div>
         </div>
 
-        {/* Tabla Principal */}
+        {/* Tabla Principal - SIN COLUMNA MASCOTA */}
         <div className="rounded-4 shadow-lg overflow-hidden" style={{ 
           background: 'rgba(255, 255, 255, 0.75)', 
           backdropFilter: 'blur(15px)',
@@ -420,7 +420,6 @@ const AuditoriaPage = ({ user }) => {
                   <th className="ps-4 py-4 fw-bold">MÓDULO</th>
                   <th className="fw-bold">ACCIÓN</th>
                   <th className="fw-bold">ELEMENTO AFECTADO</th>
-                  <th className="fw-bold">MASCOTA</th>
                   <th className="fw-bold">RESPONSABLE</th>
                   <th className="fw-bold">FECHA</th>
                   <th className="text-center pe-4 fw-bold">ACCIONES</th>
@@ -428,23 +427,15 @@ const AuditoriaPage = ({ user }) => {
               </thead>
               <tbody className="border-0">
                 {loading ? (
-                  <tr><td colSpan="7" className="text-center py-5"><div className="spinner-border text-primary"></div></td></tr>
+                  <tr><td colSpan="6" className="text-center py-5"><div className="spinner-border text-primary"></div></td></tr>
                 ) : movimientos.length === 0 ? (
-                  <tr><td colSpan="7" className="text-center py-5 text-muted fw-bold">No se encontraron registros</td></tr>
+                  <tr><td colSpan="6" className="text-center py-5 text-muted fw-bold">No se encontraron registros</td></tr>
                 ) : (
                   movimientos.map((m, i) => (
                     <tr key={getId(m) || i} className={`border-bottom border-white border-opacity-50 ${m.eliminado == 1 ? 'opacity-50' : ''}`}>
                       <td className="ps-4">{renderModuloBadge(m.modulo)}</td>
                       <td>{renderAccion(m.accion, m.eliminado)}</td>
                       <td className="fw-bold text-dark">{getElementoAfectado(m)}</td>
-                      <td className="fw-bold">
-                        {getMascota(m) !== '-' ? (
-                          <>
-                            <FontAwesomeIcon icon={faPaw} className="me-1 text-primary opacity-50" /> 
-                            {getMascota(m)}
-                          </>
-                        ) : '-'}
-                      </td>
                       <td>
                         <span className="badge bg-white text-dark border shadow-sm px-3 py-2 rounded-pill">
                             <FontAwesomeIcon icon={faUser} className="me-2 text-muted" />{m.responsable || '-'}

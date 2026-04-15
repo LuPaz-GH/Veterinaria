@@ -34,10 +34,28 @@ const AppContent = () => {
   const location = useLocation();
   const esLogin = location.pathname === '/login';
 
+  // Debug: Log cuando cambia el user
   useEffect(() => {
-    if (user) localStorage.setItem('user', JSON.stringify(user));
-    else localStorage.removeItem('user');
+    console.log('🔄 [App] User state cambiado:', user);
   }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem('user', JSON.stringify(user));
+      console.log('💾 [App] User guardado en localStorage');
+    } else {
+      localStorage.removeItem('user');
+      console.log('🗑️ [App] User removido de localStorage');
+    }
+  }, [user]);
+
+  // Logout centralizado
+  const handleLogout = () => {
+    console.log('🚪 [App] Cerrando sesión');
+    setUser(null);
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+  };
 
   const fondoGlobal = (user?.rol === 'admin' || user?.rol === 'veterinario' || user?.rol === 'recepcionista')
     ? 'linear-gradient(135deg, #663399 0%, #ff69b4 100%)'
@@ -48,7 +66,7 @@ const AppContent = () => {
       className="d-flex flex-column flex-md-row min-vh-100" 
       style={{ background: esLogin ? 'none' : fondoGlobal }}
     >
-      {!esLogin && user && <Sidebar />}
+      {!esLogin && user && <Sidebar user={user} onLogout={handleLogout} />}
 
       <main 
         className="flex-grow-1 d-flex flex-column" 
@@ -56,9 +74,22 @@ const AppContent = () => {
       >
         <Routes>
           <Route path="/" element={<Navigate to="/login" replace />} />
-          <Route path="/login" element={<LoginPage />} />
           
-          <Route path="/home" element={<HomePage user={user} />} />
+          {/* ✅ CORRECCIÓN: Pasar setUser como prop al LoginPage */}
+          <Route path="/login" element={<LoginPage setUser={setUser} />} />
+          
+          {/* ✅ CORRECCIÓN: Protección de ruta /home con fallback claro */}
+          <Route 
+            path="/home" 
+            element={
+              user ? (
+                <HomePage user={user} onLogout={handleLogout} />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            } 
+          />
+          
           <Route path="/clientes" element={<MascotasPage user={user} />} />
           <Route path="/turnos" element={<TurnosPage user={user} />} />
           <Route path="/duenos" element={<DueñosPage user={user} />} />
@@ -87,27 +118,27 @@ const AppContent = () => {
 
           <Route 
             path="/historial" 
-            element={['admin', 'veterinario'].includes(user?.rol) ? <HistorialPage user={user} /> : <Navigate to="/home" replace />} 
+            element={['admin', 'veterinario'].includes(user?.rol?.toLowerCase?.()) ? <HistorialPage user={user} /> : <Navigate to="/home" replace />} 
           />
 
           <Route 
             path="/admin" 
-            element={user?.rol === 'admin' ? <DueñoDashboard user={user} /> : <Navigate to="/home" replace />} 
+            element={user?.rol?.toLowerCase?.() === 'admin' ? <DueñoDashboard user={user} /> : <Navigate to="/home" replace />} 
           />
 
           <Route 
             path="/empleados" 
-            element={user?.rol === 'admin' ? <GestionEmpleados /> : <Navigate to="/home" replace />} 
+            element={user?.rol?.toLowerCase?.() === 'admin' ? <GestionEmpleados /> : <Navigate to="/home" replace />} 
           />
 
           <Route 
             path="/auditoria" 
-            element={user?.rol === 'admin' ? <AuditoriaPage user={user} /> : <Navigate to="/home" replace />} 
+            element={user?.rol?.toLowerCase?.() === 'admin' ? <AuditoriaPage user={user} /> : <Navigate to="/home" replace />} 
           />
 
           <Route 
             path="/configuracion" 
-            element={['admin', 'dueno'].includes(user?.rol) ? <ConfiguracionPage /> : <Navigate to="/home" replace />} 
+            element={['admin', 'dueno', 'dueño'].includes(user?.rol?.toLowerCase?.()) ? <ConfiguracionPage /> : <Navigate to="/home" replace />} 
           />
 
           <Route path="/reset-password" element={<ResetPassword />} />

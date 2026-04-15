@@ -81,7 +81,6 @@ router.post('/', async (req, res) => {
 // =====================================================
 router.get('/', async (req, res) => {
   try {
-    // Verificamos si la tabla existe antes de consultar
     const [tableCheck] = await pool.query(
       `SELECT COUNT(*) as existe 
        FROM information_schema.tables 
@@ -91,7 +90,7 @@ router.get('/', async (req, res) => {
 
     if (tableCheck[0].existe === 0) {
       console.warn('⚠️ Tabla solicitudes_recuperacion no existe aún');
-      return res.json([]); // Devolvemos array vacío en vez de romper
+      return res.json([]);
     }
 
     const [rows] = await pool.query(
@@ -146,124 +145,91 @@ router.put('/:id', async (req, res) => {
 });
 
 // =====================================================
-// POST /api/recuperacion/forgot-password
+// POST /api/recuperacion/forgot-password-email   ← NUEVO (el que vas a usar)
 // =====================================================
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password-email', async (req, res) => {
   const { email } = req.body;
 
-  console.log('[FORGOT-PASSWORD] Recibido email:', email);
+  console.log('[FORGOT-PASSWORD-EMAIL] Recibido email:', email);
 
   if (!email || typeof email !== 'string' || !email.includes('@')) {
-    console.log('[FORGOT-PASSWORD] Email inválido');
     return res.status(400).json({ success: false, message: 'Email válido requerido' });
   }
 
   const emailLimpio = email.trim().toLowerCase();
-  console.log('[FORGOT-PASSWORD] Email limpio para búsqueda:', emailLimpio);
 
   try {
-    console.log('[FORGOT-PASSWORD] Ejecutando query en empleados...');
-
     const [users] = await pool.query(
-      'SELECT id, nombre, rol FROM empleados WHERE email = ? AND activo = 1',
+      'SELECT id, nombre FROM empleados WHERE LOWER(email) = ? AND activo = 1',
       [emailLimpio]
     );
 
-    console.log('[FORGOT-PASSWORD] Filas encontradas:', users.length);
-    if (users.length > 0) {
-      console.log('[FORGOT-PASSWORD] Primer usuario encontrado:', users[0]);
-    }
-
     if (users.length === 0) {
-      console.log('[FORGOT-PASSWORD] No se encontró usuario activo con ese email → devolvemos mensaje genérico');
+      console.log('[FORGOT-PASSWORD-EMAIL] No se encontró usuario → respuesta genérica');
       return res.json({ success: true, message: 'Si el email está registrado, recibirás un link de recuperación' });
     }
 
     const user = users[0];
-    console.log('[FORGOT-PASSWORD] Rol del usuario:', user.rol);
-
-    if (user.rol !== 'admin') {
-      console.log('[FORGOT-PASSWORD] El rol no es admin → no enviamos email');
-      return res.json({ success: true, message: 'Contactá a la dueña para recuperación' });
-    }
-
-    console.log('[FORGOT-PASSWORD] Es admin → generando token seguro');
 
     const token = crypto.randomBytes(32).toString('hex');
     const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
-
-    console.log('[FORGOT-PASSWORD] Token generado:', token.substring(0, 10) + '...');
-    console.log('[FORGOT-PASSWORD] Fecha de expiración:', expires);
 
     await pool.query(
       'UPDATE empleados SET reset_token = ?, reset_expires = ? WHERE id = ?',
       [token, expires, user.id]
     );
 
-    console.log('[FORGOT-PASSWORD] Token y expiración guardados en BD. Llamando a enviarEmailRecuperacion...');
-
     const emailEnviado = await enviarEmailRecuperacion(emailLimpio, token, user.nombre);
 
-    console.log('[FORGOT-PASSWORD] Resultado del envío:', emailEnviado ? 'ÉXITO' : 'FALLÓ');
-
     if (!emailEnviado) {
-      console.log('[FORGOT-PASSWORD] Falló el envío del email → devolvemos error 500');
       return res.status(500).json({ success: false, message: 'Error al enviar el email de recuperación' });
     }
 
-    console.log('[FORGOT-PASSWORD] Todo OK → email enviado');
-    res.json({ success: true, message: 'Email de recuperación enviado correctamente' });
+    res.json({ success: true, message: 'Link de recuperación enviado correctamente' });
+
   } catch (err) {
-    console.error('[FORGOT-PASSWORD] Error crítico en el proceso:', err);
+    console.error('[FORGOT-PASSWORD-EMAIL] Error crítico:', err);
     res.status(500).json({ success: false, message: 'Error interno del servidor' });
   }
 });
 
 // =====================================================
-// POST /api/recuperacion/forgot-password/reset-password
+// POST /api/recuperacion/forgot-password/reset-password  ← ACTUALIZADO
 // =====================================================
 router.post('/forgot-password/reset-password', async (req, res) => {
-  const { token, email, newPassword, newUsuario } = req.body;
+  const { token, newPassword, newUsuario } = req.body;
 
   console.log('[RESET-PASSWORD] Recibida solicitud de reset');
-  console.log('[RESET-PASSWORD] Token recibido:', token ? token.substring(0, 10) + '...' : 'NO TOKEN');
-  console.log('[RESET-PASSWORD] Email recibido:', email);
-  console.log('[RESET-PASSWORD] Nuevo usuario recibido:', newUsuario || 'NO ENVIADO');
 
-  if (!token || !email || !newPassword || newPassword.length < 6) {
-    console.log('[RESET-PASSWORD] Datos inválidos');
-    return res.status(400).json({ success: false, message: 'Datos inválidos o contraseña muy corta (mínimo 6 caracteres)' });
+  if (!token || !newPassword || newPassword.length < 6) {
+    return res.status(400).json({ success: false, message: 'Token y nueva contraseña son obligatorios (mínimo 6 caracteres)' });
   }
 
   try {
-    console.log('[RESET-PASSWORD] Buscando usuario con token válido...');
-
     const [users] = await pool.query(
-      'SELECT id FROM empleados WHERE email = ? AND reset_token = ? AND reset_expires > NOW()',
-      [email, token]
+      'SELECT id FROM empleados WHERE reset_token = ? AND reset_expires > NOW()',
+      [token]
     );
 
-    console.log('[RESET-PASSWORD] Usuarios encontrados con token válido:', users.length);
-
     if (users.length === 0) {
-      console.log('[RESET-PASSWORD] Token inválido o expirado');
-      return res.status(400).json({ success: false, message: 'Token inválido, expirado o email incorrecto' });
+      return res.status(400).json({ success: false, message: 'Token inválido o expirado' });
     }
 
     const userId = users[0].id;
-    console.log('[RESET-PASSWORD] Usuario encontrado - ID:', userId);
-
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    console.log('[RESET-PASSWORD] Contraseña hasheada correctamente');
 
-    // Preparamos la query dinámica
-    let updateQuery = 'UPDATE empleados SET password = ?, reset_token = NULL, reset_expires = NULL';
+    let updateQuery = `
+      UPDATE empleados 
+      SET password = ?, 
+          reset_token = NULL, 
+          reset_expires = NULL
+    `;
     let params = [hashedPassword];
 
     if (newUsuario && newUsuario.trim()) {
       console.log('[RESET-PASSWORD] Actualizando usuario a:', newUsuario.trim());
       updateQuery += ', usuario = ?';
-      params.push(newUsuario.trim());
+      params.push(newUsuario.trim().toLowerCase());
     }
 
     updateQuery += ' WHERE id = ?';
@@ -273,7 +239,10 @@ router.post('/forgot-password/reset-password', async (req, res) => {
 
     console.log('[RESET-PASSWORD] Cuenta actualizada con éxito');
 
-    res.json({ success: true, message: 'Cuenta actualizada correctamente. Ya podés iniciar sesión con tus nuevos datos.' });
+    res.json({ 
+      success: true, 
+      message: 'Contraseña y usuario actualizados correctamente. Ya podés iniciar sesión.' 
+    });
   } catch (err) {
     console.error('[RESET-PASSWORD] Error al procesar reset:', err);
     res.status(500).json({ success: false, message: 'Error al actualizar la cuenta' });

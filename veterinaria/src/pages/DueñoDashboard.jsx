@@ -55,7 +55,35 @@ const CustomTooltip = ({ active, payload, label }) => {
 const DueñoDashboard = () => {
     const [reporte, setReporte] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [chartDimensions, setChartDimensions] = useState({
+        width: 800,
+        height: 350
+    });
     const dashboardRef = useRef(null);
+
+    // Actualizar dimensiones de gráficos al montar y redimensionar
+    useEffect(() => {
+        const updateDimensions = () => {
+            if (dashboardRef.current) {
+                const { width } = dashboardRef.current.getBoundingClientRect();
+                setChartDimensions({
+                    width: Math.max(width - 32, 300), // Mínimo 300px
+                    height: 350
+                });
+            }
+        };
+
+        // Ejecutar después de un pequeño delay para asegurar que el DOM está listo
+        const timer = setTimeout(updateDimensions, 100);
+        
+        window.addEventListener('resize', updateDimensions);
+        updateDimensions();
+
+        return () => {
+            clearTimeout(timer);
+            window.removeEventListener('resize', updateDimensions);
+        };
+    }, []);
 
     const fetchDatos = async () => {
         try {
@@ -79,6 +107,7 @@ const DueñoDashboard = () => {
                 graficoTurnos: turnosNormalizados
             });
         } catch (error) {
+            console.warn('⚠️ Usando datos de fallback para dashboard:', error.message);
             setReporte({
                 totales: { dia: 463700, semana: 1200000, mes: 4500000, anio: 18000000 },
                 graficoVentas: [
@@ -125,13 +154,23 @@ const DueñoDashboard = () => {
     const exportarPDF = async () => {
         const element = dashboardRef.current;
         if (!element) return;
-        const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#2e144b" });
-        const imgData = canvas.toDataURL('image/png');
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-        pdf.save(`Reporte_Malfi_Completo.pdf`);
+        try {
+            const canvas = await html2canvas(element, { 
+                scale: 2, 
+                useCORS: true, 
+                backgroundColor: "#2e144b",
+                logging: false 
+            });
+            const imgData = canvas.toDataURL('image/png');
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+            pdf.save(`Reporte_Malfi_Completo.pdf`);
+        } catch (err) {
+            console.error('Error exportando PDF:', err);
+            alert('No se pudo generar el PDF. Intentá de nuevo.');
+        }
     };
 
     const COLORS = ['#663399', '#ff69b4', '#00bfff', '#99cc33', '#ffa500'];
@@ -144,7 +183,18 @@ const DueñoDashboard = () => {
         boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)'
     };
 
-    if (loading) return null; // Evitamos parpadeos de carga dentro de la Home
+    if (loading) {
+        return (
+            <div className="container-fluid p-4" style={{ minHeight: '400px' }}>
+                <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '300px' }}>
+                    <div className="spinner-border text-light" role="status">
+                        <span className="visually-hidden">Cargando...</span>
+                    </div>
+                    <span className="ms-3 text-white fw-bold">Cargando reportes...</span>
+                </div>
+            </div>
+        );
+    }
 
     const graficoVentasFormateado = (reporte?.graficoVentas || []).map(item => ({
         ...item,
@@ -152,10 +202,7 @@ const DueñoDashboard = () => {
     }));
 
     return (
-        <div ref={dashboardRef} className="container-fluid p-0 position-relative">
-            {/* ELIMINADO: Se quitó el backgroundImage, el fixed y el overlay de color 
-               para que herede el fondo de la HomePage.
-            */}
+        <div ref={dashboardRef} className="container-fluid p-4">
             <div className="position-relative">
                 <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
                     <div className="text-white text-start">
@@ -196,8 +243,8 @@ const DueñoDashboard = () => {
                                 <FontAwesomeIcon icon={faArrowTrendUp} className="me-2 text-success" /> Evolución de Ventas
                             </h5>
                             <div style={{ width: '100%', height: '350px' }}>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={graficoVentasFormateado}>
+                                <ResponsiveContainer width="100%" height={350} minWidth={300}>
+                                    <BarChart data={graficoVentasFormateado} margin={{ top: 20, right: 20, left: 10, bottom: 5 }}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
                                         <XAxis dataKey="dia" stroke="#fff" tick={{ fontSize: 12, fill: '#fff' }} />
                                         <YAxis stroke="#fff" tick={{ fontSize: 12, fill: '#fff' }} />
@@ -213,11 +260,11 @@ const DueñoDashboard = () => {
                         <div className="p-4 h-100" style={glassStyle}>
                             <h5 className="text-white fw-bold mb-4">Distribución de Servicios</h5>
                             <div style={{ width: '100%', height: '300px', position: 'relative' }}>
-                                <div style={{ position: 'absolute', top: '45%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', color: '#fff' }}>
+                                <div style={{ position: 'absolute', top: '45%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', color: '#fff', zIndex: 1 }}>
                                     <h3 className="fw-bold mb-0">{(reporte?.graficoTurnos || []).reduce((acc, curr) => acc + (curr?.value || 0), 0)}</h3>
                                     <small className="fw-bold opacity-75">SERVICIOS</small>
                                 </div>
-                                <ResponsiveContainer width="100%" height="100%">
+                                <ResponsiveContainer width="100%" height={300} minWidth={250}>
                                     <PieChart>
                                         <Pie
                                             data={reporte?.graficoTurnos || []}
@@ -232,7 +279,7 @@ const DueñoDashboard = () => {
                                             ))}
                                         </Pie>
                                         <Tooltip content={<CustomTooltip />} />
-                                        <Legend wrapperStyle={{ color: '#fff', fontSize: '12px' }} />
+                                        <Legend wrapperStyle={{ color: '#fff', fontSize: '12px', paddingTop: '10px' }} />
                                     </PieChart>
                                 </ResponsiveContainer>
                             </div>
@@ -243,8 +290,8 @@ const DueñoDashboard = () => {
                         <div className="p-4 h-100" style={glassStyle}>
                             <h5 className="text-white fw-bold mb-4">Tendencia Mensual</h5>
                             <div style={{ width: '100%', height: '300px' }}>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <LineChart data={reporte?.tendenciaMensual || []}>
+                                <ResponsiveContainer width="100%" height={300} minWidth={300}>
+                                    <LineChart data={reporte?.tendenciaMensual || []} margin={{ top: 20, right: 20, left: 10, bottom: 5 }}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                                         <XAxis dataKey="mes" stroke="#fff" tick={{ fontSize: 12 }} />
                                         <YAxis stroke="#fff" tick={{ fontSize: 12 }} />

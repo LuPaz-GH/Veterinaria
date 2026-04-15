@@ -4,17 +4,21 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faPaw, faCalendarCheck, faHistory, faSignOutAlt, 
   faHome, faShoppingBag, faBowlFood, 
-  faPills, faCashRegister, faChartLine, faUsers, faUsersCog 
+  faPills, faCashRegister, faChartLine, faUsers, faUsersCog, faScissors
 } from '@fortawesome/free-solid-svg-icons';
 import ConfirmModal from './ConfirmModal';
 
-const Sidebar = () => {
+const Sidebar = ({ user: propUser, onLogout }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
-  const user = JSON.parse(localStorage.getItem('user')) || null;
-  const rol = user?.rol || 'invitado';
+  // Priorizar user por props, sino fallback a localStorage
+  const user = propUser || JSON.parse(localStorage.getItem('user')) || null;
+  const rolRaw = user?.rol || 'invitado';
+  
+  // Normalizar rol para evitar problemas de mayúsculas/espacios
+  const rol = rolRaw?.toLowerCase().trim();
 
   const esAdmin = rol === 'admin';
   const esVeterinario = rol === 'veterinario';
@@ -95,9 +99,13 @@ const Sidebar = () => {
   }
 
   const handleLogout = () => { setShowLogoutModal(true); };
+  
   const confirmarLogout = () => {
     localStorage.removeItem('user');
     localStorage.removeItem('token');
+    if (onLogout) {
+      onLogout();
+    }
     navigate('/login');
     setShowLogoutModal(false);
   };
